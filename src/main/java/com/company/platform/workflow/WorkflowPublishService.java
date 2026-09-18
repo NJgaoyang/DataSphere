@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
+import java.time.LocalDateTime;
 
 @Service
 public class WorkflowPublishService {
@@ -111,7 +112,7 @@ public class WorkflowPublishService {
         // DS definition must be released ONLINE before we persist PUBLISHED locally.
         schedulerGateway.release(effectiveProcessCode, true);
         WorkflowView published = new WorkflowView(workflow.id(), workflow.name(), workflow.workflowCode(), workflow.description(),
-                "PUBLISHED", version, workflow.nodes(), workflow.edges(), effectiveProcessCode);
+                "PUBLISHED", version, workflow.nodes(), workflow.edges(), effectiveProcessCode, LocalDateTime.now());
         store.persistWorkflow(published);
         store.workflows.put(workflowId, published);
 

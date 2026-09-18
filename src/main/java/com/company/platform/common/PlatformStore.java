@@ -170,12 +170,13 @@ public class PlatformStore {
                         rs.getLong("id"), rs.getLong("source_node_id"), rs.getLong("target_node_id")));
                 advanceId(rs.getLong("id"));
             });
-            jdbc.query("SELECT id,name,workflow_code,description,status,ds_process_code,published_version FROM workflow", rs -> {
+            jdbc.query("SELECT id,name,workflow_code,description,status,ds_process_code,published_version,updated_at FROM workflow", rs -> {
                 long id = rs.getLong("id");
                 Integer version = rs.getObject("published_version", Integer.class);
                 workflows.put(id, new WorkflowView(id, rs.getString("name"), rs.getString("workflow_code"), rs.getString("description"),
                         rs.getString("status"), version == null ? 0 : version, loadedNodes.getOrDefault(id, List.of()),
-                        loadedEdges.getOrDefault(id, List.of()), rs.getString("ds_process_code")));
+                        loadedEdges.getOrDefault(id, List.of()), rs.getString("ds_process_code"),
+                        rs.getTimestamp("updated_at") == null ? null : rs.getTimestamp("updated_at").toLocalDateTime()));
                 advanceId(id);
             });
             jdbc.query("SELECT id,username,display_name,phone,role_code,status,created_at,password_hash FROM platform_user", rs -> {

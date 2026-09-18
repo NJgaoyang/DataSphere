@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
@@ -138,7 +139,7 @@ public class WorkflowService {
         validateGraph(graph);
         synchronizeTaskDependencies(graph.nodes(), graph.edges(), operator);
         WorkflowView view = new WorkflowView(workflowId, request.name(), "wf_" + UUID.randomUUID().toString().replace("-", ""),
-                request.description(), "DRAFT", 0, graph.nodes(), orchestrationEdges(graph.nodes(), graph.edges()));
+                request.description(), "DRAFT", 0, graph.nodes(), orchestrationEdges(graph.nodes(), graph.edges()), null, LocalDateTime.now());
         store.persistWorkflow(view);
         store.workflows.put(workflowId, view);
         return withSharedTaskDependencies(view);
@@ -153,7 +154,7 @@ public class WorkflowService {
         validateGraph(graph);
         synchronizeTaskDependencies(graph.nodes(), graph.edges(), operator);
         WorkflowView view = new WorkflowView(id, request.name(), current.workflowCode(), request.description(), "DRAFT",
-                current.publishedVersion(), graph.nodes(), orchestrationEdges(graph.nodes(), graph.edges()), current.dsProcessCode());
+                current.publishedVersion(), graph.nodes(), orchestrationEdges(graph.nodes(), graph.edges()), current.dsProcessCode(), LocalDateTime.now());
         store.persistWorkflow(view);
         store.workflows.put(id, view);
         return withSharedTaskDependencies(view);
@@ -273,7 +274,7 @@ public class WorkflowService {
             }
         }
         return new WorkflowView(view.id(), view.name(), view.workflowCode(), view.description(), view.status(),
-                view.publishedVersion(), view.nodes(), merged, view.dsProcessCode());
+                view.publishedVersion(), view.nodes(), merged, view.dsProcessCode(), view.updatedAt());
     }
 
     private record GraphDraft(List<WorkflowNodeView> nodes, List<WorkflowEdgeView> edges) { }
