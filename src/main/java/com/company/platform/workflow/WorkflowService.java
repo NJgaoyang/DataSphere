@@ -68,7 +68,7 @@ public class WorkflowService {
             int level = levels.getOrDefault(file.id(), 0);
             int row = rowByLevel.merge(level, 1, Integer::sum) - 1;
             nodes.add(new WorkflowNodeView(file.id(), stripExtension(file.name()), NodeType.SQL, file.id(), "{}",
-                    90 + level * 270, 75 + row * 115, "task_" + file.id()));
+                    72 + level * 340, 105 + row * 140, "task_" + file.id()));
         }
         return new WorkflowView(0, "开发任务依赖图", "development_task_graph",
                 "由数据开发调度依赖自动生成，修改依赖后会同步回数据开发", "SYNCED", 0, nodes, edges);
