@@ -117,6 +117,8 @@ export interface WorkflowPayload { name:string; description?:string; nodes:Array
 export interface ScheduleConfig { id:number; workflowId:number; cronExpression:string; timezone:string; enabled:boolean; failureStrategy:string; parallelism:number; workerGroup?:string; alertGroup?:string }
 export const workflowApi = {
   list: () => api.get<WorkflowView[]>('/workflows'),
+  developmentGraph: () => api.get<WorkflowView>('/workflows/development-graph'),
+  saveDevelopmentGraph: (payload:WorkflowPayload) => api.put<WorkflowView>('/workflows/development-graph',payload),
   get: (id:number) => api.get<WorkflowView>(`/workflows/${id}`),
   create: (payload:WorkflowPayload) => api.post<WorkflowView>('/workflows',payload),
   update: (id:number,payload:WorkflowPayload) => api.put<WorkflowView>(`/workflows/${id}`,payload),

@@ -19,6 +19,10 @@ public class WorkflowController {
         this.service = service; this.publishService = publishService; this.schedulerService = schedulerService;
     }
     @GetMapping public Result<List<WorkflowView>> list() { return Result.ok(service.list()); }
+    @GetMapping("/development-graph") public Result<WorkflowView> developmentGraph() { return Result.ok(service.developmentGraph()); }
+    @PutMapping("/development-graph") public Result<WorkflowView> updateDevelopmentGraph(@Valid @RequestBody WorkflowRequests.WorkflowRequest request, HttpServletRequest servletRequest) {
+        return Result.ok(service.updateDevelopmentGraph(request, operator(servletRequest)), "开发任务依赖已同步");
+    }
     @PostMapping public Result<WorkflowView> create(@Valid @RequestBody WorkflowRequests.WorkflowRequest request, HttpServletRequest servletRequest) { return Result.ok(service.create(request, operator(servletRequest))); }
     @PutMapping("/{id}") public Result<WorkflowView> update(@PathVariable long id, @Valid @RequestBody WorkflowRequests.WorkflowRequest request, HttpServletRequest servletRequest) { return Result.ok(service.update(id, request, operator(servletRequest)), "工作流已保存"); }
     @DeleteMapping("/{id}") public Result<Void> delete(@PathVariable long id) { service.delete(id); return Result.ok(null, "工作流已删除"); }
