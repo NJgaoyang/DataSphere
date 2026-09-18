@@ -1,0 +1,13 @@
+target/
+frontend-v2/node_modules/
+frontend-v2/dist/
+.idea/
+*.iml
+*.log
+.DS_Store
+
+# Local deployment/runtime artifacts and secrets
+.run/
+backups/
+*.log.prev
+config/datasphere.env

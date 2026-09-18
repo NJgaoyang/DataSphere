@@ -1,0 +1,45 @@
+server:
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  datasource:
+    url: ${DATASPHERE_DB_URL:jdbc:mysql://127.0.0.1:3306/datasphere?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DATASPHERE_DB_USERNAME:root}
+    password: ${DATASPHERE_DB_PASSWORD}
+    hikari:
+      connection-timeout: ${DATASPHERE_DB_CONNECTION_TIMEOUT_MS:10000}
+      validation-timeout: ${DATASPHERE_DB_VALIDATION_TIMEOUT_MS:5000}
+      maximum-pool-size: ${DATASPHERE_DB_POOL_SIZE:20}
+
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:false}
+
+datasphere:
+  security:
+    enabled: ${DATASPHERE_AUTH_ENABLED:true}
+    admin-username: ${DATASPHERE_ADMIN_USERNAME:admin}
+    admin-initial-password: ${DATASPHERE_ADMIN_INITIAL_PASSWORD:}
+  query:
+    default-max-rows: ${DATASPHERE_QUERY_MAX_ROWS:1000}
+    timeout-seconds: ${DATASPHERE_QUERY_TIMEOUT_SECONDS:300}
+    max-concurrent-queries: ${DATASPHERE_QUERY_MAX_CONCURRENT:8}
+  seatunnel:
+    real-enabled: ${SEATUNNEL_REAL_ENABLED:true}
+  scheduler:
+    type: ${DATASPHERE_SCHEDULER_TYPE:local}
+    dolphinscheduler:
+      base-url: ${DOLPHINSCHEDULER_BASE_URL:http://172.17.0.12:12345}
+      username: ${DOLPHINSCHEDULER_USERNAME:admin}
+      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:datasphere}
+      tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:datasphere}
+      password: ${DOLPHINSCHEDULER_PASSWORD:}
+      token: ${DOLPHINSCHEDULER_TOKEN:}
+      real-enabled: ${DOLPHINSCHEDULER_REAL_ENABLED:true}
+      fail-retry-times: ${DOLPHINSCHEDULER_FAIL_RETRY_TIMES:3}
+      fail-retry-interval: ${DOLPHINSCHEDULER_FAIL_RETRY_INTERVAL:1}
+      worker-group: ${DOLPHINSCHEDULER_WORKER_GROUP:default}

@@ -1,0 +1,51 @@
+name: build-and-test
+
+on:
+  push:
+    branches: [ main, 'feat/**', 'fix/**', 'release/**' ]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend-v2/package-lock.json
+      - name: Normalize frontend package registry
+        run: sed -i 's#http://mirrors.tencentyun.com/npm/#https://registry.npmjs.org/#g' frontend-v2/package-lock.json
+      - name: Run backend tests
+        run: mvn -B clean test
+      - name: Build deployable package
+        run: mvn -B package -DskipTests
+      - name: Verify frontend is packaged into jar
+        run: |
+          jar tf target/datasphere-0.1.0-SNAPSHOT.jar | grep -q 'BOOT-INF/classes/static/index.html'
+          unzip -p target/datasphere-0.1.0-SNAPSHOT.jar BOOT-INF/classes/static/index.html | grep -q 'DataSphere'
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-v2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend-v2/package-lock.json
+      - name: Normalize package registry
+        run: sed -i 's#http://mirrors.tencentyun.com/npm/#https://registry.npmjs.org/#g' package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build frontend
+        run: npm run build

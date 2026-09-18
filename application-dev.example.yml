@@ -1,0 +1,21 @@
+server:
+  port: ${DATASPHERE_PORT:8080}
+
+spring:
+  datasource:
+    url: ${DATASPHERE_DB_URL:jdbc:mysql://127.0.0.1:3306/datasphere?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DATASPHERE_DB_USERNAME:root}
+    password: ${DATASPHERE_DB_PASSWORD:}
+
+datasphere:
+  security:
+    enabled: ${DATASPHERE_AUTH_ENABLED:false}
+    admin-username: ${DATASPHERE_ADMIN_USERNAME:admin}
+    admin-initial-password: ${DATASPHERE_ADMIN_INITIAL_PASSWORD:}
+  scheduler:
+    type: ${DATASPHERE_SCHEDULER_TYPE:local}
+    dolphinscheduler:
+      base-url: ${DOLPHINSCHEDULER_BASE_URL:http://127.0.0.1:12345}
+      username: ${DOLPHINSCHEDULER_USERNAME:admin}
+      project-code: ${DOLPHINSCHEDULER_PROJECT_CODE:datasphere}
+      tenant-code: ${DOLPHINSCHEDULER_TENANT_CODE:datasphere}
