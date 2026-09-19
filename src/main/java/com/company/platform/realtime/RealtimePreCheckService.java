@@ -88,7 +88,9 @@ public class RealtimePreCheckService {
                 sinkInfo.username(), sinkInfo.password(), requests.get(0).targetTable());
         String targetStrategy = string(spec.get("targetStrategy"), "AUTO_CREATE").toUpperCase(Locale.ROOT);
         if (!"AUTO_CREATE".equals(targetStrategy)) return;
-        Map<String,Object> starrocks = spec.get("starrocks") instanceof Map<?,?> raw ? (Map<String,Object>) raw : Map.of();
+        Map<String,Object> starrocks = new LinkedHashMap<>();
+        if (spec.get("starrocks") instanceof Map<?,?> raw)
+            raw.forEach((key,value) -> { if (key != null) starrocks.put(String.valueOf(key), value); });
         Map<String, Object> options = new LinkedHashMap<>();
         options.put("sourceTimezone", sourceView.timezone());
         options.put("targetTimezone", sinkView.timezone());

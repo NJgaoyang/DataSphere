@@ -3,6 +3,7 @@ package com.company.platform.integration;
 import com.company.platform.common.BadRequestException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.datasource.PasswordCipher;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -80,7 +81,7 @@ public class IntegrationStagingService {
             IntegrationRequests.Endpoint target = new IntegrationRequests.Endpoint(targetStored.host(), targetStored.port(), targetStored.database(),
                     targetStored.username(), cipher.decrypt(targetStored.password()), targetStored.table());
             JsonNode transform = mapper.readTree(task.transformConfigJson() == null ? "{}" : task.transformConfigJson());
-            Map<String,Object> options = mapper.convertValue(transform.path("options"), Map.class);
+            Map<String,Object> options = mapper.convertValue(transform.path("options"), new TypeReference<Map<String,Object>>() {});
             String timezone = string(options.get("targetTimezone"), "Asia/Shanghai");
             List<String> published = new ArrayList<>();
             try (Connection connection = DriverManager.getConnection(jdbcUrl(target, timezone), target.username(), target.password())) {

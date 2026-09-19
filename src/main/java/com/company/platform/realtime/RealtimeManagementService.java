@@ -76,7 +76,7 @@ public class RealtimeManagementService {
 
     public List<SchemaChangeRow> scanSchemaChanges(RealtimeViews.Job job) {
         Map<String,Object> spec=job.spec(); long sourceId=longValue(spec.get("sourceDataSourceId")); String sourceDb=str(spec.get("sourceDatabase"));
-        Map<String,Object> policies=spec.get("schemaPolicies") instanceof Map<?,?> raw?(Map<String,Object>)raw:Map.of();
+        Map<String,Object> policies=stringObjectMap(spec.get("schemaPolicies"));
         for(Map<String,Object> table:tableMaps(spec)){
             String sourceTable=str(table.get("sourceTable")); if(sourceTable.isBlank())continue;
             List<ColumnOption> current=columns(sourceId,sourceDb,sourceTable); String currentJson=json(current);
@@ -148,7 +148,8 @@ public class RealtimeManagementService {
             default -> "NOT_COLLECTED";
         };
     }
-    @SuppressWarnings("unchecked") private List<Map<String,Object>> tableMaps(Map<String,Object> spec){Object raw=spec.get("tables");if(!(raw instanceof List<?> l))return List.of();return l.stream().filter(Map.class::isInstance).map(x->(Map<String,Object>)x).toList();}
+    private List<Map<String,Object>> tableMaps(Map<String,Object> spec){Object raw=spec.get("tables");if(!(raw instanceof List<?> list))return List.of();List<Map<String,Object>> out=new ArrayList<>();for(Object item:list){Map<String,Object> mapped=stringObjectMap(item);if(!mapped.isEmpty())out.add(mapped);}return out;}
+    private Map<String,Object> stringObjectMap(Object raw){if(!(raw instanceof Map<?,?> map))return Map.of();Map<String,Object> out=new LinkedHashMap<>();map.forEach((key,value)->{if(key!=null)out.put(String.valueOf(key),value);});return out;}
     private int tableCount(Map<String,Object> spec){return tableMaps(spec).size();}
     private String scope(Map<String,Object> spec){String v=str(spec.get("syncScope"));return v.isBlank()?(tableCount(spec)==1?"SINGLE_TABLE":"MULTI_TABLE"):v;}
     private Map<String,Object> parse(String json){if(json==null||json.isBlank())return new LinkedHashMap<>();try{return mapper.readValue(json,new TypeReference<LinkedHashMap<String,Object>>(){});}catch(Exception ex){return new LinkedHashMap<>();}}
