@@ -1374,9 +1374,9 @@ onBeforeUnmount(() => {
 
 /* login/workbench visual alignment */
 .ds-integration-page{position:relative;min-height:calc(100vh - 72px);background:linear-gradient(180deg,#fbfdff 0%,#f7faff 100%)}
-.ds-integration-page :deep(.ds-page-header){margin-bottom:22px}
-.ds-integration-page :deep(.ds-page-header__title){color:#0b2142;font-size:26px;font-weight:760;letter-spacing:-.5px}
-.ds-integration-page :deep(.ds-page-header__subtitle){margin-top:7px;color:#7b8ca5;font-size:12px}
+.ds-integration-page :deep(.ds-page-header){margin-bottom:12px}
+.ds-integration-page :deep(.ds-page-header__title){color:#0b2142;font-size:20px;font-weight:720;letter-spacing:-.5px}
+.ds-integration-page :deep(.ds-page-header__subtitle){margin-top:3px;color:#7b8ca5;font-size:12px}
 .ds-integration-page :deep(.ds-page-header__actions .el-button--primary){height:38px;padding:0 17px;border:0;border-radius:10px;background:#2f78ef;box-shadow:0 8px 18px rgba(47,120,239,.16)}
 .integration-list-surface{border-color:#e7edf6!important;border-radius:18px!important;background:rgba(255,255,255,.94)!important;box-shadow:0 12px 32px rgba(32,76,145,.04)!important}
 .integration-list-surface .ds-toolbar{min-height:62px!important;padding:11px 16px!important;background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%)!important;border-bottom-color:#edf2f7!important}
