@@ -164,17 +164,15 @@ const filteredTasks = computed(() => {
 async function load() {
   loading.value = true
   try {
-    const [taskRows, sourceRows, projectRows] = await Promise.all([integrationApi.list(), dataSourceApi.list(), integrationApi.projectOptions()])
+    const [taskRows, sourceRows, projectRows, states] = await Promise.all([integrationApi.list(), dataSourceApi.list(), integrationApi.projectOptions(), integrationApi.states()])
     tasks.value = taskRows.filter(task => task.syncMode !== 'REALTIME')
     sources.value = sourceRows
     projectOptions.value = projectRows
-    const states = await Promise.all(tasks.value.map(async task => {
-      const [batchRows, instanceRows, summary] = await Promise.all([integrationApi.batches(task.id), integrationApi.instances(task.id), integrationApi.summary(task.id)])
-      return { taskId: task.id, batch: batchRows[0], instance: instanceRows[0], summary }
-    }))
-    latestBatch.value = Object.fromEntries(states.map(item => [item.taskId, item.batch]))
-    latest.value = Object.fromEntries(states.map(item => [item.taskId, item.instance]))
-    taskSummaries.value = Object.fromEntries(states.map(item => [item.taskId, item.summary]))
+    const visibleIds = new Set(tasks.value.map(task => task.id))
+    const visibleStates = states.filter(item => visibleIds.has(item.taskId))
+    latestBatch.value = Object.fromEntries(visibleStates.map(item => [item.taskId, item.latestBatch]))
+    latest.value = Object.fromEntries(visibleStates.map(item => [item.taskId, item.latestInstance]))
+    taskSummaries.value = Object.fromEntries(visibleStates.map(item => [item.taskId, item.summary]))
   } catch (error) {
     ElMessage.error(messageOf(error))
   } finally {
@@ -627,20 +625,23 @@ async function refreshHistory(showLoading = false) {
     history.value = instanceRows
     const nextLogs: Record<string, string> = { ...historyLogs.value }
     if (batchRows.length) {
-      const attemptPairs = await Promise.all(batchRows.map(async batch => [batch.id, await integrationApi.attempts(batch.id)] as const))
-      historyAttempts.value = Object.fromEntries(attemptPairs)
-      for (const [batchId, rows] of attemptPairs) {
-        const batch = batchRows.find(item => item.id === batchId)
-        for (const attempt of rows) {
+      const allAttempts = await integrationApi.attemptsForTask(historyTask.value.id)
+      const grouped = new Map<number, (typeof allAttempts)[number][]>()
+      for (const attempt of allAttempts) grouped.set(attempt.batchId, [...(grouped.get(attempt.batchId) || []), attempt])
+      historyAttempts.value = Object.fromEntries(batchRows.map(batch => [batch.id, grouped.get(batch.id) || []]))
+      for (const batch of batchRows) {
+        for (const attempt of historyAttempts.value[batch.id] || []) {
           const key = `attempt-${attempt.id}`
           if (!selectedHistoryLogKey.value && attempt.executionId) {
             selectedHistoryLogKey.value = key
-            selectedHistoryLogTitle.value = `${batch?.batchCode || 'Batch'} / Attempt #${attempt.attemptNo}`
+            selectedHistoryLogTitle.value = `${batch.batchCode || 'Batch'} / Attempt #${attempt.attemptNo}`
           }
           if (!attempt.executionId) {
-            nextLogs[key] = attempt.errorMessage || batch?.errorMessage || '尚未生成执行日志'
+            nextLogs[key] = attempt.errorMessage || batch.errorMessage || '尚未生成执行日志'
             continue
           }
+          const terminal = ['SUCCESS','SUCCEEDED','FINISHED','COMPLETED','FAILED','FAIL','ERROR','STOPPED','CANCELED','CANCELLED'].includes(String(attempt.status||'').toUpperCase())
+          if (terminal && nextLogs[key]) continue
           try { nextLogs[key] = await integrationApi.log(attempt.executionId) }
           catch (error) { nextLogs[key] = messageOf(error) }
         }
@@ -657,6 +658,8 @@ async function refreshHistory(showLoading = false) {
           nextLogs[key] = row.message || '暂无日志'
           continue
         }
+        const terminal = ['SUCCESS','SUCCEEDED','FINISHED','COMPLETED','FAILED','FAIL','ERROR','STOPPED','CANCELED','CANCELLED'].includes(String(row.status||'').toUpperCase())
+        if (terminal && nextLogs[key]) continue
         try { nextLogs[key] = await integrationApi.log(row.executionId) }
         catch (error) { nextLogs[key] = messageOf(error) }
       }

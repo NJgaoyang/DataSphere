@@ -100,7 +100,7 @@ function shortTime(v?:string){return v?fmt(v).slice(5):'—'}
 function changeGraphScale(kind:'lineage'|'schedule',delta:number){const target=kind==='lineage'?lineageScale:scheduleScale;target.value=Math.max(.6,Math.min(1.8,Math.round((target.value+delta)*10)/10))}
 function fitGraph(kind:'lineage'|'schedule'){(kind==='lineage'?lineageScale:scheduleScale).value=1}
 async function openGraphFull(kind:'lineage'|'schedule'){graphFullKind.value=kind;fitGraph(kind);if(kind==='lineage')await loadLineage();else await loadScheduleRuntimes();graphFullOpen.value=true}
-async function loadScheduleRuntimes(){if(!file.value||file.value.id<0)return;const ids=[file.value.id,...scheduleDependencies.value.map(x=>x.fileId),...scheduleDownstream.value.map(x=>x.fileId)].filter((v,i,a)=>a.indexOf(v)===i);await Promise.all(ids.map(async id=>{try{runtimeByFile.set(id,await developmentApi.scheduleRuntime(id))}catch{runtimeByFile.delete(id)}}))}
+async function loadScheduleRuntimes(){if(!file.value||file.value.id<0)return;const ids=[file.value.id,...scheduleDependencies.value.map(x=>x.fileId),...scheduleDownstream.value.map(x=>x.fileId)].filter((v,i,a)=>a.indexOf(v)===i);try{const rows=await developmentApi.scheduleRuntimes(ids);runtimeByFile.clear();for(const row of rows)runtimeByFile.set(row.fileId,row)}catch{for(const id of ids)runtimeByFile.delete(id)}}
 async function openScheduleNode(id:number,name:string,role:string){let sc:DevelopmentSchedule|undefined;try{sc=await developmentApi.schedule(id)}catch{}graphDetail.value={kind:'schedule',id,name:stripExt(name),role,runtime:runtimeOf(id),schedule:sc};graphDetailOpen.value=true}
 function openLineageNode(name:string,role:string){graphDetail.value={kind:'lineage',name,role};graphDetailOpen.value=true}
 

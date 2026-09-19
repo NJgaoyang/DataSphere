@@ -5,6 +5,7 @@ export interface IntegrationTask { id:number; projectId?:number; name:string; so
 export interface IntegrationProjectOption { id:number; name:string }
 export interface IntegrationDownstreamOption { id:number; name:string; fileType:string; ownerName?:string; lifecycleStatus:string }
 export interface IntegrationTaskSummary { createdAt?:string; createdBy:string; lastRunAt?:string; nextRunAt?:string; durationMs?:number; dataCount?:number }
+export interface IntegrationTaskState { taskId:number; latestBatch?:IntegrationBatch; latestInstance?:IntegrationInstance; summary:IntegrationTaskSummary }
 export interface IntegrationTaskSchedule { taskId:number; cronExpression:string; timezone:string; enabled:boolean }
 export interface IntegrationInstance { id:number; taskId:number; executionId:string; status:string; startedAt?:string; finishedAt?:string; message?:string }
 export interface IntegrationBatch { id:number; taskId:number; batchCode:string; triggerType:string; status:string; clusterId?:number; parametersJson?:string; sourceBatchId?:number; createdBy:string; startedAt?:string; finishedAt?:string; errorMessage?:string; createdAt?:string }
@@ -19,6 +20,8 @@ export interface IntegrationTaskPayload {
 }
 export const integrationApi = {
   list: () => api.get<IntegrationTask[]>('/integration/tasks'),
+  states: () => api.get<IntegrationTaskState[]>('/integration/tasks/states'),
+  statesFor: (ids:number[]) => api.post<IntegrationTaskState[]>('/integration/tasks/states/query',ids),
   projectOptions: () => api.get<IntegrationProjectOption[]>('/integration/tasks/project-options'),
   projectDownstreams: (projectId:number) => api.get<IntegrationDownstreamOption[]>('/integration/tasks/project-downstreams',{params:{projectId}}),
   get: (id:number) => api.get<IntegrationTask>(`/integration/tasks/${id}`),
@@ -38,6 +41,7 @@ export const integrationApi = {
   instances: (id:number) => api.get<IntegrationInstance[]>(`/integration/tasks/${id}/instances`),
   batches: (id:number) => api.get<IntegrationBatch[]>(`/integration/tasks/${id}/batches`),
   attempts: (batchId:number) => api.get<IntegrationAttempt[]>(`/integration/tasks/batches/${batchId}/attempts`),
+  attemptsForTask: (taskId:number) => api.get<IntegrationAttempt[]>(`/integration/tasks/${taskId}/attempts`),
   retryBatch: (batchId:number) => api.post<IntegrationBatch>(`/integration/tasks/batches/${batchId}/retry`),
   reconcileBatch: (batchId:number) => api.post<IntegrationBatch>(`/integration/tasks/batches/${batchId}/reconcile`),
   backfill: (id:number,payload:{where:string;startLabel?:string;endLabel?:string}) => api.post<IntegrationBatch>(`/integration/tasks/${id}/backfill`,payload),

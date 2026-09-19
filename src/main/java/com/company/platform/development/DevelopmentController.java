@@ -76,6 +76,17 @@ public class DevelopmentController {
         return Result.ok(service.files(projectId, operator(servletRequest)));
     }
 
+    @GetMapping("/files/visible")
+    public Result<List<DevFileView>> visibleFiles(HttpServletRequest servletRequest) {
+        return Result.ok(service.visibleFiles(operator(servletRequest)));
+    }
+
+    @PostMapping("/files/schedule/runtimes")
+    public Result<List<DevelopmentScheduleService.ScheduleRuntimeView>> scheduleRuntimes(@RequestBody List<Long> fileIds, HttpServletRequest servletRequest) {
+        service.requireFilesView(fileIds, operator(servletRequest));
+        return Result.ok(schedules.runtimes(fileIds));
+    }
+
     @GetMapping("/files/recent")
     public Result<List<Long>> recentFiles(@RequestParam long projectId, HttpServletRequest servletRequest) {
         return Result.ok(service.recentFileIds(projectId, operator(servletRequest)));

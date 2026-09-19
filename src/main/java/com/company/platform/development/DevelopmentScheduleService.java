@@ -120,10 +120,35 @@ public class DevelopmentScheduleService {
 
     public ScheduleRuntimeView runtime(long fileId) {
         requireFile(fileId);
-        ScheduleRuntimeView latest=jdbc.query("SELECT status,planned_at,started_at,finished_at,execution_id,error_message FROM dev_file_schedule_execution WHERE file_id=? ORDER BY id DESC LIMIT 1",(rs,n)->new ScheduleRuntimeView(fileId,rs.getString("status"),time(rs.getTimestamp("planned_at")),time(rs.getTimestamp("started_at")),time(rs.getTimestamp("finished_at")),rs.getString("execution_id"),rs.getString("error_message"),null),fileId).stream().findFirst().orElse(new ScheduleRuntimeView(fileId,"NEVER_RUN",null,null,null,null,null,null));
-        LocalDateTime next=null;
-        try { Trigger trigger=quartz.getTrigger(new TriggerKey("dev_schedule_"+fileId,"datasphere-development")); if(trigger!=null&&trigger.getNextFireTime()!=null){ ZoneId zone=trigger instanceof CronTrigger cron?cron.getTimeZone().toZoneId():ZoneId.systemDefault(); next=LocalDateTime.ofInstant(trigger.getNextFireTime().toInstant(), zone); } } catch(SchedulerException ignored) {}
-        return new ScheduleRuntimeView(fileId,latest.status(),latest.plannedAt(),latest.startedAt(),latest.finishedAt(),latest.executionId(),latest.errorMessage(),next);
+        return runtimes(List.of(fileId)).getFirst();
+    }
+
+    public List<ScheduleRuntimeView> runtimes(Collection<Long> fileIds) {
+        List<Long> ids = fileIds == null ? List.of() : fileIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) return List.of();
+        String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+        String sql = "SELECT e.file_id,e.status,e.planned_at,e.started_at,e.finished_at,e.execution_id,e.error_message " +
+                "FROM dev_file_schedule_execution e JOIN (SELECT file_id,MAX(id) id FROM dev_file_schedule_execution " +
+                "WHERE file_id IN (" + placeholders + ") GROUP BY file_id) latest ON latest.id=e.id";
+        Map<Long, ScheduleRuntimeView> latest = new HashMap<>();
+        jdbc.query(sql, (rs,n) -> new ScheduleRuntimeView(rs.getLong("file_id"),rs.getString("status"),time(rs.getTimestamp("planned_at")),
+                        time(rs.getTimestamp("started_at")),time(rs.getTimestamp("finished_at")),rs.getString("execution_id"),rs.getString("error_message"),null), ids.toArray())
+                .forEach(row -> latest.put(row.fileId(), row));
+        return ids.stream().map(fileId -> {
+            ScheduleRuntimeView row = latest.getOrDefault(fileId, new ScheduleRuntimeView(fileId,"NEVER_RUN",null,null,null,null,null,null));
+            return new ScheduleRuntimeView(fileId,row.status(),row.plannedAt(),row.startedAt(),row.finishedAt(),row.executionId(),row.errorMessage(),nextPlannedAt(fileId));
+        }).toList();
+    }
+
+    private LocalDateTime nextPlannedAt(long fileId) {
+        try {
+            Trigger trigger=quartz.getTrigger(new TriggerKey("dev_schedule_"+fileId,"datasphere-development"));
+            if(trigger!=null&&trigger.getNextFireTime()!=null){
+                ZoneId zone=trigger instanceof CronTrigger cron?cron.getTimeZone().toZoneId():ZoneId.systemDefault();
+                return LocalDateTime.ofInstant(trigger.getNextFireTime().toInstant(), zone);
+            }
+        } catch(SchedulerException ignored) {}
+        return null;
     }
 
     private LocalDateTime time(java.sql.Timestamp value){return value==null?null:value.toLocalDateTime();}

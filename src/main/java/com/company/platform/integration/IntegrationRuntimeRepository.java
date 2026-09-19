@@ -11,7 +11,11 @@ import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Repository
@@ -54,6 +58,18 @@ public class IntegrationRuntimeRepository {
                 (rs, n) -> batch(rs), taskId);
     }
 
+    public Map<Long, IntegrationBatchView> latestBatches(Collection<Long> taskIds) {
+        List<Long> ids = taskIds == null ? List.of() : taskIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) return Map.of();
+        String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+        String sql = "SELECT b.* FROM integration_batch b JOIN (" +
+                "SELECT task_id,MAX(id) id FROM integration_batch WHERE task_id IN (" + placeholders + ") GROUP BY task_id" +
+                ") latest ON latest.id=b.id ORDER BY b.task_id";
+        Map<Long, IntegrationBatchView> out = new LinkedHashMap<>();
+        jdbc.query(sql, (rs, n) -> batch(rs), ids.toArray()).forEach(row -> out.put(row.taskId(), row));
+        return out;
+    }
+
     public IntegrationBatchView getBatch(long batchId) {
         List<IntegrationBatchView> rows = jdbc.query("SELECT * FROM integration_batch WHERE id=?",
                 (rs, n) -> batch(rs), batchId);
@@ -64,6 +80,12 @@ public class IntegrationRuntimeRepository {
     public List<IntegrationAttemptView> attempts(long batchId) {
         return jdbc.query("SELECT * FROM integration_attempt WHERE batch_id=? ORDER BY attempt_no DESC",
                 (rs, n) -> attempt(rs), batchId);
+    }
+
+    public List<IntegrationAttemptView> attemptsForTask(long taskId) {
+        return jdbc.query("SELECT a.* FROM integration_attempt a JOIN integration_batch b ON b.id=a.batch_id " +
+                        "WHERE b.task_id=? ORDER BY b.created_at DESC,b.id DESC,a.attempt_no DESC",
+                (rs, n) -> attempt(rs), taskId);
     }
 
     public IntegrationAttemptView latestAttempt(long batchId) {

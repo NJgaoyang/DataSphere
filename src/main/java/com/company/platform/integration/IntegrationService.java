@@ -321,6 +321,12 @@ public class IntegrationService {
         return runtimeRepository.attempts(batchId);
     }
 
+    public List<IntegrationAttemptView> attemptsForTask(long taskId) {
+        raw(taskId);
+        ensureRuntimeRepository();
+        return runtimeRepository.attemptsForTask(taskId);
+    }
+
     public IntegrationCursorView cursor(long taskId) { raw(taskId); ensureRuntimeRepository(); return runtimeRepository.cursor(taskId); }
 
     public IntegrationCursorView saveCursor(long taskId, IntegrationRequests.CursorRequest request) {

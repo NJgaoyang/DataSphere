@@ -14,11 +14,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -154,6 +156,20 @@ public class DevelopmentService {
         return store.files.values().stream().filter(file -> file.projectId() == projectId).sorted(Comparator.comparing(DevFileView::name)).toList();
     }
     public List<DevFileView> files(long projectId, String operator) { requireProjectView(projectId, operator); return files(projectId); }
+    public List<DevFileView> visibleFiles(String operator) {
+        String username = normalizeOperator(operator);
+        return store.files.values().stream().filter(file -> canProjectView(file.projectId(), username))
+                .sorted(Comparator.comparingLong(DevFileView::projectId).thenComparing(DevFileView::name, String.CASE_INSENSITIVE_ORDER)).toList();
+    }
+    public void requireFilesView(Collection<Long> fileIds, String operator) {
+        if (fileIds == null) return;
+        String username = normalizeOperator(operator);
+        for (Long id : fileIds.stream().filter(Objects::nonNull).distinct().toList()) {
+            DevFileView file = store.files.get(id);
+            if (file == null) throw new NotFoundException("开发任务不存在：" + id);
+            if (!canProjectView(file.projectId(), username)) throw new BadRequestException("当前用户没有数据开发查看权限");
+        }
+    }
 
     public DevFileView createFile(DevelopmentRequests.FileRequest request) { return createFileInternal(request, "admin"); }
     @Transactional

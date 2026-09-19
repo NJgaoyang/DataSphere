@@ -7,11 +7,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DevelopmentAccessServiceTest {
     private PlatformStore store;
@@ -72,6 +74,21 @@ class DevelopmentAccessServiceTest {
         assertEquals(1, store.files.size());
         assertEquals(2, store.versions.values().stream().filter(version -> version.fileId() == v2.id()).count());
         assertEquals("select 2", v2.content());
+    }
+
+    @Test
+    void visibleFilesAndBulkViewChecksRespectProjectAccess() {
+        store.projects.put(10L, new DevProjectView(10L, "项目A", "", "ACTIVE", "alice"));
+        store.projects.put(11L, new DevProjectView(11L, "项目B", "", "ACTIVE", "carol"));
+        store.users.put(20L, new UserView(20L, "bob", "Bob", "USER", "ACTIVE", LocalDateTime.now(), null));
+        store.userPermissions.put(20L, Set.of("DATA_DEVELOPMENT_VIEW"));
+        store.projectPermissions.put("10:20:VIEW", "VIEW");
+        store.files.put(101L, new DevFileView(101L, 10L, null, "visible.sql", "SQL", "", "", "DRAFT", 1, LocalDateTime.now(), "OFFLINE", false, "alice"));
+        store.files.put(102L, new DevFileView(102L, 11L, null, "hidden.sql", "SQL", "", "", "DRAFT", 1, LocalDateTime.now(), "OFFLINE", false, "carol"));
+
+        assertEquals(List.of(101L), development.visibleFiles("bob").stream().map(DevFileView::id).toList());
+        development.requireFilesView(List.of(101L), "bob");
+        assertThrows(RuntimeException.class, () -> development.requireFilesView(List.of(101L, 102L), "bob"));
     }
 
     @Test
