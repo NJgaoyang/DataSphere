@@ -261,7 +261,7 @@ public class WorkflowService {
     }
 
     private boolean sharedTaskNode(WorkflowNodeView node) {
-        return node != null && node.devFileId() != null && node.nodeType() == NodeType.SQL;
+        return node != null && node.devFileId() != null && node.nodeType() != NodeType.SEATUNNEL && node.nodeType() != NodeType.CONDITION;
     }
 
     private List<WorkflowEdgeView> orchestrationEdges(List<WorkflowNodeView> nodes, List<WorkflowEdgeView> edges) {
