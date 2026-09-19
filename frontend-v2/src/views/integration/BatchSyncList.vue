@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ElMessageBox, ElMessage } from '../../ui/feedback'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ArrowDown, Delete, Document, Download, EditPen, Upload, VideoPlay, View } from '@element-plus/icons-vue'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
 import BatchTaskTable from './components/BatchTaskTable.vue'
+import BatchHistoryDrawer from './components/BatchHistoryDrawer.vue'
 import { dataSourceApi, type DataSourceView } from '../../api/platform'
-import { integrationApi, type IntegrationAttempt, type IntegrationBatch, type IntegrationCursor, type IntegrationInstance, type IntegrationTask, type IntegrationTaskPayload, type IntegrationTaskSummary, type IntegrationTaskSchedule, type IntegrationProjectOption, type IntegrationDownstreamOption } from '../../api/domain'
+import { integrationApi, type IntegrationBatch, type IntegrationCursor, type IntegrationInstance, type IntegrationTask, type IntegrationTaskPayload, type IntegrationTaskSummary, type IntegrationTaskSchedule, type IntegrationProjectOption, type IntegrationDownstreamOption } from '../../api/domain'
 
 const tasks = ref<IntegrationTask[]>([])
 const sources = ref<DataSourceView[]>([])
@@ -36,20 +37,14 @@ const targetDbs = ref<string[]>([])
 const sourceTables = ref<Array<{ name: string; comment?: string }>>([])
 const targetTables = reactive<Record<string, string>>({})
 const historyVisible = ref(false)
-const historyLoading = ref(false)
 const historyTask = ref<IntegrationTask | null>(null)
-const history = ref<IntegrationInstance[]>([])
-const batches = ref<IntegrationBatch[]>([])
-const historyAttempts = ref<Record<number, IntegrationAttempt[]>>({})
-const historyLogs = ref<Record<string, string>>({})
-const selectedHistoryLogKey = ref('')
-const selectedHistoryLogTitle = ref('')
-const historyLogMaximized = ref(false)
+const historyBatchId = ref<number>()
+const historyInstanceId = ref<number>()
+const historyRequestKey = ref(0)
 const seatunnelPreview = ref('')
 const previewLoading = ref(false)
 const scheduleTab = ref<'minute'|'hour'|'day'|'month'|'week'>('minute')
 const schedulePreviewTimes = ref<string[]>([])
-let historyPollTimer: ReturnType<typeof setInterval> | null = null
 const backfillVisible = ref(false)
 const backfillTask = ref<IntegrationTask | null>(null)
 const backfillSaving = ref(false)
@@ -613,140 +608,12 @@ async function offlineTask(task: IntegrationTask) {
   }
 }
 
-async function refreshHistory(showLoading = false) {
-  if (!historyTask.value) return
-  if (showLoading) historyLoading.value = true
-  try {
-    const [batchRows, instanceRows] = await Promise.all([
-      integrationApi.batches(historyTask.value.id),
-      integrationApi.instances(historyTask.value.id)
-    ])
-    batches.value = batchRows
-    history.value = instanceRows
-    const nextLogs: Record<string, string> = { ...historyLogs.value }
-    if (batchRows.length) {
-      const allAttempts = await integrationApi.attemptsForTask(historyTask.value.id)
-      const grouped = new Map<number, (typeof allAttempts)[number][]>()
-      for (const attempt of allAttempts) grouped.set(attempt.batchId, [...(grouped.get(attempt.batchId) || []), attempt])
-      historyAttempts.value = Object.fromEntries(batchRows.map(batch => [batch.id, grouped.get(batch.id) || []]))
-      for (const batch of batchRows) {
-        for (const attempt of historyAttempts.value[batch.id] || []) {
-          const key = `attempt-${attempt.id}`
-          if (!selectedHistoryLogKey.value && attempt.executionId) {
-            selectedHistoryLogKey.value = key
-            selectedHistoryLogTitle.value = `${batch.batchCode || 'Batch'} / Attempt #${attempt.attemptNo}`
-          }
-          if (!attempt.executionId) {
-            nextLogs[key] = attempt.errorMessage || batch.errorMessage || '尚未生成执行日志'
-            continue
-          }
-          const terminal = ['SUCCESS','SUCCEEDED','FINISHED','COMPLETED','FAILED','FAIL','ERROR','STOPPED','CANCELED','CANCELLED'].includes(String(attempt.status||'').toUpperCase())
-          if (terminal && nextLogs[key]) continue
-          try { nextLogs[key] = await integrationApi.log(attempt.executionId) }
-          catch (error) { nextLogs[key] = messageOf(error) }
-        }
-      }
-    } else {
-      historyAttempts.value = {}
-      for (const row of instanceRows) {
-        const key = `instance-${row.id}`
-        if (!selectedHistoryLogKey.value && row.executionId) {
-          selectedHistoryLogKey.value = key
-          selectedHistoryLogTitle.value = row.executionId
-        }
-        if (!row.executionId) {
-          nextLogs[key] = row.message || '暂无日志'
-          continue
-        }
-        const terminal = ['SUCCESS','SUCCEEDED','FINISHED','COMPLETED','FAILED','FAIL','ERROR','STOPPED','CANCELED','CANCELLED'].includes(String(row.status||'').toUpperCase())
-        if (terminal && nextLogs[key]) continue
-        try { nextLogs[key] = await integrationApi.log(row.executionId) }
-        catch (error) { nextLogs[key] = messageOf(error) }
-      }
-    }
-    historyLogs.value = nextLogs
-  } catch (error) {
-    if (showLoading) ElMessage.error(messageOf(error))
-  } finally {
-    if (showLoading) historyLoading.value = false
-  }
-}
-
-function startHistoryPolling() {
-  stopHistoryPolling()
-  historyPollTimer = setInterval(() => {
-    if (historyVisible.value) void refreshHistory(false)
-  }, 2000)
-}
-
-function stopHistoryPolling() {
-  if (historyPollTimer) clearInterval(historyPollTimer)
-  historyPollTimer = null
-}
-
-async function showHistory(task: IntegrationTask, batchId?: number, instanceId?: number) {
+function showHistory(task: IntegrationTask, batchId?: number, instanceId?: number) {
   historyTask.value = task
+  historyBatchId.value = batchId
+  historyInstanceId.value = instanceId
+  historyRequestKey.value += 1
   historyVisible.value = true
-  selectedHistoryLogKey.value = ''
-  selectedHistoryLogTitle.value = ''
-  historyLogs.value = {}
-  await refreshHistory(true)
-  if (batchId) {
-    const batch = batches.value.find(item => item.id === batchId)
-    const attempt = batch ? (historyAttempts.value[batch.id] || []).find(item => item.executionId) || (historyAttempts.value[batch.id] || [])[0] : undefined
-    if (batch && attempt) selectAttempt(batch, attempt)
-  } else if (instanceId) {
-    const instance = history.value.find(item => item.id === instanceId)
-    if (instance) selectLegacyInstance(instance)
-  }
-  startHistoryPolling()
-}
-
-function selectAttempt(batch: IntegrationBatch, attempt: IntegrationAttempt) {
-  selectedHistoryLogKey.value = `attempt-${attempt.id}`
-  selectedHistoryLogTitle.value = `${batch.batchCode} / Attempt #${attempt.attemptNo}`
-}
-
-function selectLegacyInstance(row: IntegrationInstance) {
-  selectedHistoryLogKey.value = `instance-${row.id}`
-  selectedHistoryLogTitle.value = row.executionId || `历史执行 #${row.id}`
-}
-
-function selectedHistoryLog() {
-  return selectedHistoryLogKey.value ? (historyLogs.value[selectedHistoryLogKey.value] || '暂无日志') : '暂无日志'
-}
-
-function closeHistory() {
-  stopHistoryPolling()
-  historyLogMaximized.value = false
-}
-
-function handleGlobalKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && historyLogMaximized.value) {
-    event.preventDefault()
-    historyLogMaximized.value = false
-  }
-}
-
-async function retryBatch(batch: IntegrationBatch) {
-  const task = tasks.value.find(item => item.id === batch.taskId)
-  if (task && !isOnline(task)) return ElMessage.warning('任务已下线，请先上线后再重试')
-  try {
-    await ElMessageBox.confirm('重试会复用该批次创建时固化的运行快照，不使用任务当前的新配置。确认重试？', '重试离线批次', { type: 'warning' })
-    await integrationApi.retryBatch(batch.id)
-    ElMessage.success('重试已提交')
-    if (historyTask.value) await showHistory(historyTask.value)
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error(messageOf(error))
-  }
-}
-
-async function reconcileBatch(batch: IntegrationBatch) {
-  try {
-    await integrationApi.reconcileBatch(batch.id)
-    ElMessage.success('已向 SeaTunnel 重新核对运行状态')
-    if (historyTask.value) await showHistory(historyTask.value)
-  } catch (error) { ElMessage.error(messageOf(error)) }
 }
 
 function openBackfill(task: IntegrationTask) {
@@ -983,11 +850,6 @@ function handleBatchMoreCommand(command: string, task: IntegrationTask) {
 
 onMounted(() => {
   void load()
-  window.addEventListener('keydown', handleGlobalKeydown)
-})
-onBeforeUnmount(() => {
-  stopHistoryPolling()
-  window.removeEventListener('keydown', handleGlobalKeydown)
 })
 </script>
 
@@ -1302,27 +1164,7 @@ onBeforeUnmount(() => {
       </template>
     </el-drawer>
 
-    <el-drawer v-model="historyVisible" :title="`执行日志 · ${historyTask?.name || ''}`" size="60%" :close-on-press-escape="!historyLogMaximized" @closed="closeHistory">
-      <div class="history-shell" v-loading="historyLoading">
-        <div class="runtime-note">当前日志对应所选批次；任务执行中每 2 秒自动刷新，无需等待任务结束。</div>
-
-        <div :class="['history-log-panel', { 'is-maximized': historyLogMaximized }]">
-          <div class="history-log-toolbar">
-            <div>
-              <strong>执行日志</strong>
-              <span>{{ selectedHistoryLogTitle || '当前执行' }}</span>
-              <em>运行中自动刷新</em>
-            </div>
-            <div class="history-log-actions">
-              <el-button size="small" @click="refreshHistory(false)">刷新</el-button>
-              <el-button v-if="!historyLogMaximized" size="small" type="primary" plain @click="historyLogMaximized = true">放大</el-button>
-              <el-button v-else size="small" type="primary" @click="historyLogMaximized = false">还原（Esc）</el-button>
-            </div>
-          </div>
-          <div class="history-log-viewer"><pre>{{ selectedHistoryLog() }}</pre></div>
-        </div>
-      </div>
-    </el-drawer>
+    <BatchHistoryDrawer v-model="historyVisible" :task="historyTask" :batch-id="historyBatchId" :instance-id="historyInstanceId" :request-key="historyRequestKey" />
 
     <el-dialog v-model="backfillVisible" :title="`补数 · ${backfillTask?.name || ''}`" width="680px">
       <div class="runtime-note">补数会创建独立 BACKFILL Batch，不修改任务原有同步条件。</div>
