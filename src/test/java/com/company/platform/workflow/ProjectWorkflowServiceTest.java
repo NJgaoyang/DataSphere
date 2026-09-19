@@ -4,6 +4,8 @@ import com.company.platform.common.PlatformStore;
 import com.company.platform.development.DevFileView;
 import com.company.platform.development.DevProjectView;
 import com.company.platform.development.DevelopmentScheduleService;
+import com.company.platform.development.DevelopmentAccessService;
+import com.company.platform.common.ForbiddenException;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -35,6 +37,24 @@ class ProjectWorkflowServiceTest {
         var impact = service.impact(1L,1L,false);
         assertEquals(List.of(2L,3L), impact.tasks().stream().map(ProjectWorkflowService.ImpactTask::fileId).toList());
         assertEquals(List.of(1,2), impact.tasks().stream().map(ProjectWorkflowService.ImpactTask::level).toList());
+    }
+
+    @Test
+    void projectDefinitionsAndGraphRespectProjectAccess() {
+        PlatformStore store = new PlatformStore();
+        store.projects.clear(); store.files.clear();
+        store.projects.put(1L,new DevProjectView(1,"受限项目","","ACTIVE","owner"));
+        store.files.put(1L,file(1,"secret.sql"));
+        DevelopmentScheduleService schedules = mock(DevelopmentScheduleService.class);
+        when(schedules.get(1L)).thenReturn(schedule(1L,List.of()));
+        ProjectWorkflowService service = new ProjectWorkflowService(store,schedules,mock(JdbcTemplate.class));
+        DevelopmentAccessService access = mock(DevelopmentAccessService.class);
+        when(access.canProjectView(1L,"alice")).thenReturn(false);
+        doThrow(new ForbiddenException("无权访问")).when(access).requireProjectView(1L,"alice");
+        service.setDevelopmentAccess(access);
+
+        assertTrue(service.definitions("alice").isEmpty());
+        assertThrows(ForbiddenException.class, () -> service.graph(1L,"alice"));
     }
 
     private static DevFileView file(long id,String name) {

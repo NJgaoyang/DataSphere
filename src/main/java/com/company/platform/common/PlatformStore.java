@@ -164,10 +164,10 @@ public class PlatformStore {
                         rs.getInt("x"), rs.getInt("y"), rs.getString("node_code")));
                 advanceId(rs.getLong("id"));
             });
-            jdbc.query("SELECT id,workflow_id,source_node_id,target_node_id FROM workflow_edge", rs -> {
+            jdbc.query("SELECT id,workflow_id,source_node_id,target_node_id,branch_type FROM workflow_edge", rs -> {
                 long workflowId = rs.getLong("workflow_id");
                 loadedEdges.computeIfAbsent(workflowId, ignored -> new ArrayList<>()).add(new WorkflowEdgeView(
-                        rs.getLong("id"), rs.getLong("source_node_id"), rs.getLong("target_node_id")));
+                        rs.getLong("id"), rs.getLong("source_node_id"), rs.getLong("target_node_id"), rs.getString("branch_type")));
                 advanceId(rs.getLong("id"));
             });
             jdbc.query("SELECT id,name,workflow_code,description,status,ds_process_code,published_version,updated_at FROM workflow", rs -> {
@@ -425,8 +425,8 @@ public class PlatformStore {
                     node.id(), workflow.id(), node.nodeCode(), node.name(), node.nodeType().name(), node.devFileId(), node.configJson(), node.x(), node.y());
         }
         for (WorkflowEdgeView edge : workflow.edges()) {
-            jdbc.update("INSERT INTO workflow_edge (id,workflow_id,source_node_id,target_node_id) VALUES (?,?,?,?)",
-                    edge.id(), workflow.id(), edge.sourceNodeId(), edge.targetNodeId());
+            jdbc.update("INSERT INTO workflow_edge (id,workflow_id,source_node_id,target_node_id,branch_type) VALUES (?,?,?,?,?)",
+                    edge.id(), workflow.id(), edge.sourceNodeId(), edge.targetNodeId(), edge.branchType());
         }
     }
     public void persistSchedule(ScheduleConfigView schedule) {

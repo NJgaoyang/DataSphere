@@ -57,6 +57,18 @@ public class DevelopmentAccessService {
         return new ProjectAccess(projectId, true, edit, owner, module.projectAll());
     }
 
+    public boolean canProjectView(long projectId, String operator) {
+        try { projectAccess(projectId, operator); return true; }
+        catch (com.company.platform.common.ForbiddenException ex) { return false; }
+    }
+
+    public void requireProjectView(long projectId, String operator) { projectAccess(projectId, operator); }
+
+    public void requireProjectEdit(long projectId, String operator) {
+        ProjectAccess access = projectAccess(projectId, operator);
+        if (!access.edit()) throw new ForbiddenException("当前用户仅有查看权限，无法编辑该项目");
+    }
+
     @Transactional
     public synchronized DevFileView saveToProject(DevelopmentAccessRequests.SaveToProjectRequest request, String operator) {
         if (request.projectId() <= 0) throw new BadRequestException("请选择目标项目");

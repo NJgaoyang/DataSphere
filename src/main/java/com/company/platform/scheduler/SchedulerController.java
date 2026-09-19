@@ -2,6 +2,7 @@ package com.company.platform.scheduler;
 
 import com.company.platform.common.Result;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -11,18 +12,18 @@ public class SchedulerController {
     private final SchedulerService service;
     public SchedulerController(SchedulerGateway gateway, SchedulerService service) { this.gateway = gateway; this.service = service; }
     @GetMapping("/workflows/{workflowId}/schedule")
-    public Result<ScheduleConfigView> schedule(@PathVariable long workflowId) { return Result.ok(service.get(workflowId)); }
+    public Result<ScheduleConfigView> schedule(@PathVariable long workflowId, HttpServletRequest request) { return Result.ok(service.get(workflowId, operator(request))); }
     @PutMapping("/workflows/{workflowId}/schedule")
-    public Result<ScheduleConfigView> saveSchedule(@PathVariable long workflowId, @Valid @RequestBody ScheduleRequests.ScheduleRequest request) {
-        return Result.ok(service.save(workflowId, request), "调度配置已保存");
+    public Result<ScheduleConfigView> saveSchedule(@PathVariable long workflowId, @Valid @RequestBody ScheduleRequests.ScheduleRequest request, HttpServletRequest servletRequest) {
+        return Result.ok(service.save(workflowId, request, operator(servletRequest)), "调度配置已保存");
     }
     @PostMapping("/workflows/{workflowId}/online")
-    public Result<ScheduleConfigView> online(@PathVariable long workflowId) { return Result.ok(service.online(workflowId), "工作流已上线"); }
+    public Result<ScheduleConfigView> online(@PathVariable long workflowId, HttpServletRequest request) { return Result.ok(service.online(workflowId, operator(request)), "工作流已上线"); }
     @PostMapping("/workflows/{workflowId}/offline")
-    public Result<ScheduleConfigView> offline(@PathVariable long workflowId) { return Result.ok(service.offline(workflowId), "工作流已下线"); }
+    public Result<ScheduleConfigView> offline(@PathVariable long workflowId, HttpServletRequest request) { return Result.ok(service.offline(workflowId, operator(request)), "工作流已下线"); }
     @PostMapping("/workflows/{workflowId}/backfill")
-    public Result<SchedulerGateway.RunResult> backfillWorkflow(@PathVariable long workflowId, @Valid @RequestBody ScheduleRequests.BackfillRequest request) {
-        return Result.ok(service.backfill(workflowId, request), "补数据任务已提交");
+    public Result<SchedulerGateway.RunResult> backfillWorkflow(@PathVariable long workflowId, @Valid @RequestBody ScheduleRequests.BackfillRequest request, HttpServletRequest servletRequest) {
+        return Result.ok(service.backfill(workflowId, request, operator(servletRequest)), "补数据任务已提交");
     }
     @GetMapping("/instances/{instanceId}")
     public Result<SchedulerGateway.InstanceStatus> status(@PathVariable String instanceId) { return Result.ok(gateway.status(instanceId)); }
@@ -33,6 +34,10 @@ public class SchedulerController {
     @PostMapping("/backfill")
     public Result<SchedulerGateway.RunResult> backfill(@RequestBody BackfillRequest request) {
         return Result.ok(gateway.backfill(request.processCode(), request.start(), request.end(), request.parallelism()));
+    }
+    private String operator(HttpServletRequest request) {
+        Object value = request.getAttribute("platform.operator");
+        return value == null ? "admin" : String.valueOf(value);
     }
     public record BackfillRequest(String processCode, String start, String end, int parallelism) { }
 }

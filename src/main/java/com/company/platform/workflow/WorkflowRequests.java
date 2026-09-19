@@ -13,9 +13,12 @@ public final class WorkflowRequests {
         }
     }
     public record EdgeRequest(Long sourceNodeId, Long targetNodeId,
-                              String sourceNodeCode, String targetNodeCode) {
+                              String sourceNodeCode, String targetNodeCode, String branchType) {
         public EdgeRequest(long sourceNodeId, long targetNodeId) {
-            this(sourceNodeId, targetNodeId, null, null);
+            this(sourceNodeId, targetNodeId, null, null, "NORMAL");
+        }
+        public EdgeRequest(Long sourceNodeId, Long targetNodeId, String sourceNodeCode, String targetNodeCode) {
+            this(sourceNodeId, targetNodeId, sourceNodeCode, targetNodeCode, "NORMAL");
         }
     }
     public record WorkflowRequest(@NotBlank String name, String description,

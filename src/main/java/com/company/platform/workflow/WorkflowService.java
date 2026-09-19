@@ -4,6 +4,7 @@ import com.company.platform.common.BadRequestException;
 import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.development.DevelopmentScheduleService;
+import com.company.platform.development.DevelopmentAccessService;
 import com.company.platform.development.DevFileView;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ public class WorkflowService {
     private final PlatformStore store;
     private final DagValidator validator;
     private DevelopmentScheduleService developmentSchedules;
+    private DevelopmentAccessService developmentAccess;
 
     public WorkflowService(PlatformStore store, DagValidator validator) {
         this.store = store;
@@ -28,17 +30,25 @@ public class WorkflowService {
         this.developmentSchedules = developmentSchedules;
     }
 
-    public List<WorkflowView> list() {
-        return store.workflows.values().stream().map(this::withSharedTaskDependencies).toList();
+    @Autowired(required = false)
+    public void setDevelopmentAccess(DevelopmentAccessService developmentAccess) { this.developmentAccess = developmentAccess; }
+
+    public List<WorkflowView> list() { return list("admin"); }
+
+    public List<WorkflowView> list(String operator) {
+        return store.workflows.values().stream().filter(view -> canViewWorkflow(view, operator)).map(this::withSharedTaskDependencies).toList();
     }
 
     /**
      * Data-development scripts are exposed as workflow definitions without copying them into the
      * workflow tables. Schedule, dependency and runtime information all come from Data Development.
      */
-    public List<DevelopmentWorkflowDefinition> developmentDefinitions() {
+    public List<DevelopmentWorkflowDefinition> developmentDefinitions() { return developmentDefinitions("admin"); }
+
+    public List<DevelopmentWorkflowDefinition> developmentDefinitions(String operator) {
         return store.files.values().stream()
                 .filter(file -> "SQL".equalsIgnoreCase(file.fileType()))
+                .filter(file -> canViewProject(file.projectId(), operator))
                 .sorted(Comparator.comparing(DevFileView::name, String.CASE_INSENSITIVE_ORDER).thenComparingLong(DevFileView::id))
                 .map(this::developmentDefinition)
                 .toList();
@@ -64,11 +74,15 @@ public class WorkflowService {
      * Returns the connected dependency component around one Data Development script. The workflow
      * name is exactly the script name; dependencies remain sourced from dev_file_schedule_dependency.
      */
-    public WorkflowView developmentGraph(long fileId) {
+    public WorkflowView developmentGraph(long fileId) { return developmentGraph(fileId, "admin"); }
+
+    public WorkflowView developmentGraph(long fileId, String operator) {
         DevFileView focus = store.files.get(fileId);
         if (focus == null || !"SQL".equalsIgnoreCase(focus.fileType())) throw new NotFoundException("数据开发脚本不存在：" + fileId);
+        requireProjectView(focus.projectId(), operator);
         List<DevFileView> allFiles = store.files.values().stream()
                 .filter(file -> "SQL".equalsIgnoreCase(file.fileType()))
+                .filter(file -> canViewProject(file.projectId(), operator))
                 .sorted(Comparator.comparing(DevFileView::name, String.CASE_INSENSITIVE_ORDER).thenComparingLong(DevFileView::id))
                 .toList();
         Set<Long> allIds = new LinkedHashSet<>();
@@ -116,11 +130,13 @@ public class WorkflowService {
 
     @Transactional
     public WorkflowView updateDevelopmentGraph(long fileId, WorkflowRequests.WorkflowRequest request, String operator) {
-        if (developmentSchedules == null) return developmentGraph(fileId);
+        if (developmentSchedules == null) return developmentGraph(fileId, operator);
         DevFileView focus = store.files.get(fileId);
         if (focus == null || !"SQL".equalsIgnoreCase(focus.fileType())) throw new NotFoundException("数据开发脚本不存在：" + fileId);
+        requireProjectEdit(focus.projectId(), operator);
         Map<String, Long> fileByCode = new LinkedHashMap<>();
         store.files.values().stream().filter(file -> "SQL".equalsIgnoreCase(file.fileType()))
+                .filter(file -> canViewProject(file.projectId(), operator))
                 .forEach(file -> fileByCode.put("task_" + file.id(), file.id()));
         LinkedHashSet<Long> desiredUpstreams = new LinkedHashSet<>();
         String focusCode = "task_" + fileId;
@@ -134,7 +150,7 @@ public class WorkflowService {
             }
         }
         developmentSchedules.replaceUpstreamsFromWorkflow(fileId, new ArrayList<>(desiredUpstreams), operator);
-        return developmentGraph(fileId);
+        return developmentGraph(fileId, operator);
     }
 
     public record DevelopmentWorkflowDefinition(long fileId, String name, String workflowCode, String status,
@@ -185,6 +201,7 @@ public class WorkflowService {
         long workflowId = store.nextId();
         GraphDraft graph = buildGraph(request, null);
         validateGraph(graph);
+        requireBoundProjectsEditable(graph.nodes(), operator);
         synchronizeTaskDependencies(graph.nodes(), graph.edges(), operator);
         WorkflowView view = new WorkflowView(workflowId, request.name(), "wf_" + UUID.randomUUID().toString().replace("-", ""),
                 request.description(), "DRAFT", 0, graph.nodes(), orchestrationEdges(graph.nodes(), graph.edges()), null, LocalDateTime.now());
@@ -200,6 +217,7 @@ public class WorkflowService {
         WorkflowView current = rawGet(id);
         GraphDraft graph = buildGraph(request, current);
         validateGraph(graph);
+        requireBoundProjectsEditable(graph.nodes(), operator);
         synchronizeTaskDependencies(graph.nodes(), graph.edges(), operator);
         WorkflowView view = new WorkflowView(id, request.name(), current.workflowCode(), request.description(), "DRAFT",
                 current.publishedVersion(), graph.nodes(), orchestrationEdges(graph.nodes(), graph.edges()), current.dsProcessCode(), LocalDateTime.now());
@@ -209,14 +227,24 @@ public class WorkflowService {
     }
 
     @Transactional
-    public void delete(long id) {
+    public void delete(long id) { delete(id, "admin"); }
+
+    @Transactional
+    public void delete(long id, String operator) {
         WorkflowView workflow = rawGet(id);
+        requireWorkflowEditAccess(workflow, operator);
         if ("PUBLISHED".equals(workflow.status())) throw new BadRequestException("已发布工作流不能直接删除，请先下线");
         store.deleteWorkflow(id);
         store.workflows.remove(id);
     }
 
-    public WorkflowView get(long id) { return withSharedTaskDependencies(rawGet(id)); }
+    public WorkflowView get(long id) { return get(id, "admin"); }
+
+    public WorkflowView get(long id, String operator) {
+        WorkflowView view = rawGet(id);
+        requireWorkflowViewAccess(view, operator);
+        return withSharedTaskDependencies(view);
+    }
 
     private WorkflowView rawGet(long id) {
         WorkflowView view = store.workflows.get(id);
@@ -224,8 +252,10 @@ public class WorkflowService {
         return view;
     }
 
-    public DagValidator.ValidationResult validate(long id) {
-        WorkflowView view = get(id);
+    public DagValidator.ValidationResult validate(long id) { return validate(id, "admin"); }
+
+    public DagValidator.ValidationResult validate(long id, String operator) {
+        WorkflowView view = get(id, operator);
         return validator.validate(view.nodes(), view.edges());
     }
 
@@ -251,7 +281,7 @@ public class WorkflowService {
                 }).toList();
         List<WorkflowEdgeView> edges = request.edges() == null ? List.of() : request.edges().stream()
                 .map(edge -> new WorkflowEdgeView(store.nextId(), resolveNodeId(edge.sourceNodeId(), edge.sourceNodeCode(), nodeIds),
-                        resolveNodeId(edge.targetNodeId(), edge.targetNodeCode(), nodeIds))).toList();
+                        resolveNodeId(edge.targetNodeId(), edge.targetNodeCode(), nodeIds), normalizeBranchType(edge.branchType()))).toList();
         return new GraphDraft(nodes, edges);
     }
 
@@ -323,6 +353,54 @@ public class WorkflowService {
         }
         return new WorkflowView(view.id(), view.name(), view.workflowCode(), view.description(), view.status(),
                 view.publishedVersion(), view.nodes(), merged, view.dsProcessCode(), view.updatedAt());
+    }
+
+    public void requireWorkflowEditAccess(long workflowId, String operator) { requireWorkflowEditAccess(rawGet(workflowId), operator); }
+
+    private boolean canViewWorkflow(WorkflowView workflow, String operator) {
+        if (developmentAccess == null) return true;
+        return workflow.nodes().stream().filter(this::sharedTaskNode).map(WorkflowNodeView::devFileId).filter(Objects::nonNull)
+                .map(store.files::get).filter(Objects::nonNull).map(DevFileView::projectId).distinct()
+                .allMatch(projectId -> developmentAccess.canProjectView(projectId, operator));
+    }
+
+    private void requireWorkflowViewAccess(WorkflowView workflow, String operator) {
+        if (developmentAccess == null) return;
+        workflow.nodes().stream().filter(this::sharedTaskNode).map(WorkflowNodeView::devFileId).filter(Objects::nonNull)
+                .map(store.files::get).filter(Objects::nonNull).map(DevFileView::projectId).distinct()
+                .forEach(projectId -> developmentAccess.requireProjectView(projectId, operator));
+    }
+
+    private void requireWorkflowEditAccess(WorkflowView workflow, String operator) {
+        if (developmentAccess == null) return;
+        workflow.nodes().stream().filter(this::sharedTaskNode).map(WorkflowNodeView::devFileId).filter(Objects::nonNull)
+                .map(store.files::get).filter(Objects::nonNull).map(DevFileView::projectId).distinct()
+                .forEach(projectId -> developmentAccess.requireProjectEdit(projectId, operator));
+    }
+
+    private boolean canViewProject(long projectId, String operator) {
+        return developmentAccess == null || developmentAccess.canProjectView(projectId, operator);
+    }
+
+    private void requireProjectView(long projectId, String operator) {
+        if (developmentAccess != null) developmentAccess.requireProjectView(projectId, operator);
+    }
+
+    private void requireProjectEdit(long projectId, String operator) {
+        if (developmentAccess != null) developmentAccess.requireProjectEdit(projectId, operator);
+    }
+
+    private void requireBoundProjectsEditable(List<WorkflowNodeView> nodes, String operator) {
+        if (developmentAccess == null) return;
+        nodes.stream().filter(this::sharedTaskNode).map(WorkflowNodeView::devFileId).filter(Objects::nonNull)
+                .map(store.files::get).filter(Objects::nonNull).map(DevFileView::projectId).distinct()
+                .forEach(projectId -> developmentAccess.requireProjectEdit(projectId, operator));
+    }
+
+    private String normalizeBranchType(String branchType) {
+        String value = branchType == null ? "NORMAL" : branchType.trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("NORMAL", "TRUE", "FALSE").contains(value)) throw new BadRequestException("不支持的条件分支类型：" + branchType);
+        return value;
     }
 
     private record GraphDraft(List<WorkflowNodeView> nodes, List<WorkflowEdgeView> edges) { }

@@ -6,6 +6,8 @@ import com.company.platform.common.PlatformStore;
 import com.company.platform.development.DevFileView;
 import com.company.platform.development.DevProjectView;
 import com.company.platform.development.DevelopmentScheduleService;
+import com.company.platform.development.DevelopmentAccessService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -25,14 +27,21 @@ public class ProjectWorkflowService {
     private final PlatformStore store;
     private final DevelopmentScheduleService schedules;
     private final JdbcTemplate jdbc;
+    private DevelopmentAccessService developmentAccess;
     public ProjectWorkflowService(PlatformStore store, DevelopmentScheduleService schedules, JdbcTemplate jdbc) {
         this.store = store;
         this.schedules = schedules;
         this.jdbc = jdbc;
     }
 
-    public List<ProjectWorkflowDefinition> definitions() {
+    @Autowired(required = false)
+    public void setDevelopmentAccess(DevelopmentAccessService developmentAccess) { this.developmentAccess = developmentAccess; }
+
+    public List<ProjectWorkflowDefinition> definitions() { return definitions("admin"); }
+
+    public List<ProjectWorkflowDefinition> definitions(String operator) {
         return store.projects.values().stream()
+                .filter(project -> canViewProject(project.id(), operator))
                 .sorted(Comparator.comparing(DevProjectView::name, String.CASE_INSENSITIVE_ORDER))
                 .map(this::definition)
                 .toList();
@@ -53,7 +62,10 @@ public class ProjectWorkflowService {
         return new ProjectWorkflowDefinition(project.id(), project.name(), project.description(),
                 files.size(), enabled, running, failed);
     }
-    public WorkflowView graph(long projectId) {
+    public WorkflowView graph(long projectId) { return graph(projectId, "admin"); }
+
+    public WorkflowView graph(long projectId, String operator) {
+        requireProjectView(projectId, operator);
         DevProjectView project = requireProject(projectId);
         List<DevFileView> files = projectFiles(projectId);
         Map<Long, Set<Long>> upstreamByTarget = upstreamMap(files);
@@ -75,7 +87,10 @@ public class ProjectWorkflowService {
                 "项目全部数据开发任务依赖图", "SYNCED", 1, nodes, edges, null, LocalDateTime.now());
     }
 
-    public ImpactView impact(long projectId, long sourceFileId, boolean includeSource) {
+    public ImpactView impact(long projectId, long sourceFileId, boolean includeSource) { return impact(projectId, sourceFileId, includeSource, "admin"); }
+
+    public ImpactView impact(long projectId, long sourceFileId, boolean includeSource, String operator) {
+        requireProjectView(projectId, operator);
         requireProject(projectId);
         DevFileView source = requireProjectFile(projectId, sourceFileId);
         List<DevFileView> files = projectFiles(projectId);
@@ -95,7 +110,8 @@ public class ProjectWorkflowService {
     }
 
     public RerunBatchView startRerun(RerunRequest request, String operator) {
-        ImpactView impact = impact(request.projectId(), request.sourceFileId(), request.includeSource());
+        requireProjectEdit(request.projectId(), operator);
+        ImpactView impact = impact(request.projectId(), request.sourceFileId(), request.includeSource(), operator);
         if (impact.tasks().isEmpty()) throw new BadRequestException("当前任务没有可重跑的下游任务");
         LocalDate businessDate = request.businessDate() == null || request.businessDate().isBlank()
                 ? LocalDate.now() : LocalDate.parse(request.businessDate().trim());
@@ -116,11 +132,14 @@ public class ProjectWorkflowService {
                     batchId, task.fileId(), sequence++);
         }
         CompletableFuture.runAsync(() -> executeBatch(batchId, request.projectId(), request.sourceFileId(), businessDate, operator));
-        return batch(batchId);
+        return batch(batchId, operator);
     }
 
-    public RerunBatchView batch(long batchId) {
+    public RerunBatchView batch(long batchId) { return batch(batchId, "admin"); }
+
+    public RerunBatchView batch(long batchId, String operator) {
         Map<String,Object> b = jdbc.queryForMap("SELECT * FROM workflow_rerun_batch WHERE id=?", batchId);
+        requireProjectView(((Number)b.get("project_id")).longValue(), operator);
         List<RerunTaskView> tasks = jdbc.query("SELECT t.*,f.name FROM workflow_rerun_task t LEFT JOIN dev_file f ON f.id=t.file_id WHERE t.batch_id=? ORDER BY t.sequence_no",
                 (rs,n) -> new RerunTaskView(rs.getLong("id"), rs.getObject("file_id") == null ? null : rs.getLong("file_id"),
                         stripExtension(rs.getString("name")), rs.getInt("sequence_no"), rs.getString("status"),
@@ -246,6 +265,18 @@ public class ProjectWorkflowService {
         }
         return levels;
     }
+    private boolean canViewProject(long projectId, String operator) {
+        return developmentAccess == null || developmentAccess.canProjectView(projectId, operator);
+    }
+
+    private void requireProjectView(long projectId, String operator) {
+        if (developmentAccess != null) developmentAccess.requireProjectView(projectId, operator);
+    }
+
+    private void requireProjectEdit(long projectId, String operator) {
+        if (developmentAccess != null) developmentAccess.requireProjectEdit(projectId, operator);
+    }
+
     private DevProjectView requireProject(long projectId) {
         DevProjectView project = store.projects.get(projectId);
         if (project == null) throw new NotFoundException("开发项目不存在：" + projectId);

@@ -20,6 +20,8 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDateTime;
@@ -180,33 +182,53 @@ public class LocalSchedulerGateway implements SchedulerGateway {
             Definition definition = definition(workflowCode, version);
             JsonNode root = mapper.readTree(definition.json());
             Map<Long, JsonNode> nodes = new LinkedHashMap<>();
-            Map<Long, Integer> indegree = new HashMap<>();
-            Map<Long, List<Long>> outgoing = new HashMap<>();
-            root.path("nodes").forEach(node -> { long id=node.path("id").asLong(); nodes.put(id,node); indegree.put(id,0); });
+            Map<Long, Integer> remaining = new HashMap<>();
+            Map<Long, Integer> activeIncoming = new HashMap<>();
+            Map<Long, List<RuntimeEdge>> outgoing = new HashMap<>();
+            root.path("nodes").forEach(node -> { long id=node.path("id").asLong(); nodes.put(id,node); remaining.put(id,0); activeIncoming.put(id,0); });
             root.path("edges").forEach(edge -> {
-                long s=edge.path("sourceNodeId").asLong(), t=edge.path("targetNodeId").asLong();
-                outgoing.computeIfAbsent(s, ignored -> new ArrayList<>()).add(t); indegree.compute(t,(k,v)->v==null?1:v+1);
+                long source=edge.path("sourceNodeId").asLong(), target=edge.path("targetNodeId").asLong();
+                String branch=edge.path("branchType").asText("NORMAL").toUpperCase(Locale.ROOT);
+                outgoing.computeIfAbsent(source, ignored -> new ArrayList<>()).add(new RuntimeEdge(target, branch));
+                remaining.compute(target,(key,value)->value==null?1:value+1);
             });
-            List<Long> ready = indegree.entrySet().stream().filter(e -> e.getValue()==0).map(Map.Entry::getKey).toList();
-            Set<Long> completed = new HashSet<>();
+            List<Long> ready = remaining.entrySet().stream().filter(entry -> entry.getValue()==0).map(Map.Entry::getKey).toList();
+            Set<Long> terminal = new HashSet<>();
             while (!ready.isEmpty()) {
                 if (cancelled.get() || Thread.currentThread().isInterrupted()) throw new CancellationException("工作流已停止");
                 List<Future<TaskOutcome>> futures = new ArrayList<>();
                 for (Long nodeId : ready) futures.add(taskPool.submit(() -> executeNode(instanceCode, nodes.get(nodeId), cancelled)));
-                List<Long> next = new ArrayList<>();
+                LinkedHashSet<Long> next = new LinkedHashSet<>();
+                Deque<EdgeResolution> resolutions = new ArrayDeque<>();
                 for (int i=0;i<futures.size();i++) {
                     TaskOutcome outcome = futures.get(i).get();
                     long nodeId = ready.get(i);
                     if (!outcome.success()) throw new IllegalStateException(outcome.message());
-                    completed.add(nodeId);
-                    for (Long target : outgoing.getOrDefault(nodeId,List.of())) {
-                        int remaining = indegree.compute(target,(k,v)->Math.max(0,(v==null?0:v)-1));
-                        if (remaining==0) next.add(target);
+                    terminal.add(nodeId);
+                    for (RuntimeEdge edge : outgoing.getOrDefault(nodeId,List.of())) {
+                        boolean active = branchActive(edge.branchType(), outcome.conditionMatched());
+                        resolutions.addLast(new EdgeResolution(edge.targetNodeId(), active));
                     }
                 }
-                ready = next;
+                while (!resolutions.isEmpty()) {
+                    EdgeResolution resolution = resolutions.removeFirst();
+                    long target = resolution.targetNodeId();
+                    if (resolution.active()) activeIncoming.compute(target,(key,value)->(value==null?0:value)+1);
+                    int unresolved = remaining.compute(target,(key,value)->Math.max(0,(value==null?0:value)-1));
+                    if (unresolved != 0 || terminal.contains(target)) continue;
+                    if (activeIncoming.getOrDefault(target,0)>0) {
+                        next.add(target);
+                    } else {
+                        markSkipped(instanceCode, nodes.get(target), "条件分支未命中");
+                        terminal.add(target);
+                        for (RuntimeEdge edge : outgoing.getOrDefault(target,List.of())) {
+                            resolutions.addLast(new EdgeResolution(edge.targetNodeId(), false));
+                        }
+                    }
+                }
+                ready = new ArrayList<>(next);
             }
-            if (completed.size()!=nodes.size()) throw new IllegalStateException("DAG 未能完成，可能存在循环或不可达节点");
+            if (terminal.size()!=nodes.size()) throw new IllegalStateException("DAG 未能完成，可能存在循环或不可达节点");
             jdbc.update("UPDATE workflow_instance SET status='SUCCESS',finished_at=CURRENT_TIMESTAMP WHERE instance_code=?", instanceCode);
         } catch (CancellationException | InterruptedException ex) {
             Thread.currentThread().interrupt();
@@ -230,25 +252,28 @@ public class LocalSchedulerGateway implements SchedulerGateway {
             try {
                 log(taskId,"INFO","开始执行 " + nodeName + "，第 " + attempt + " 次尝试");
                 if (cancelled.get()) throw new CancellationException("已停止");
+                Boolean conditionMatched = null;
                 switch (nodeType.toUpperCase(Locale.ROOT)) {
                     case "SQL" -> executeSql(node,taskId);
+                    case "PYTHON" -> executeScript(node,taskId,cancelled,true);
+                    case "SHELL" -> executeScript(node,taskId,cancelled,false);
                     case "SEATUNNEL" -> executeSeaTunnel(node,taskId,cancelled);
-                    case "CONDITION" -> executeCondition(node,taskId);
+                    case "CONDITION" -> conditionMatched = executeCondition(node,taskId);
                     default -> throw new IllegalStateException("Local Scheduler 不支持节点类型：" + nodeType);
                 }
                 jdbc.update("UPDATE task_instance SET status='SUCCESS',finished_at=CURRENT_TIMESTAMP WHERE id=?",taskId);
                 log(taskId,"INFO","执行成功");
-                return new TaskOutcome(true,"SUCCESS");
+                return new TaskOutcome(true,"SUCCESS",conditionMatched);
             } catch (CancellationException ex) {
                 jdbc.update("UPDATE task_instance SET status='STOPPED',finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",ex.getMessage(),taskId);
-                return new TaskOutcome(false,"任务已停止");
+                return new TaskOutcome(false,"任务已停止",null);
             } catch (Exception ex) {
                 last=ex; String message=ex.getMessage()==null?ex.getClass().getSimpleName():ex.getMessage();
                 jdbc.update("UPDATE task_instance SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",message,taskId);
                 log(taskId,"ERROR",message);
             }
         }
-        return new TaskOutcome(false,last==null?"任务失败":last.getMessage());
+        return new TaskOutcome(false,last==null?"任务失败":last.getMessage(),null);
     }
 
     private void executeSql(JsonNode node,long taskId) {
@@ -259,6 +284,48 @@ public class LocalSchedulerGateway implements SchedulerGateway {
         String database=cfg.path("database").asText("");
         log(taskId,"INFO","StarRocks SQL: dataSource="+dataSourceId+", database="+database);
         queryService.execute(sql,false,dataSourceId,database,"scheduler");
+    }
+
+    private void executeScript(JsonNode node,long taskId,AtomicBoolean cancelled,boolean python) throws Exception {
+        String encoded=node.path("contentBase64").asText("");
+        if (encoded.isBlank()) throw new IllegalStateException((python?"Python":"Shell") + " 节点没有发布快照");
+        String script=new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
+        Path scriptFile=Files.createTempFile("datasphere-workflow-", python?".py":".sh");
+        Path outputFile=Files.createTempFile("datasphere-workflow-output-", ".log");
+        Process process=null;
+        try {
+            Files.writeString(scriptFile,script,StandardCharsets.UTF_8);
+            ProcessBuilder builder=new ProcessBuilder(python?List.of("python3",scriptFile.toString()):List.of("bash",scriptFile.toString()));
+            builder.redirectErrorStream(true);
+            builder.redirectOutput(outputFile.toFile());
+            process=builder.start();
+            JsonNode cfg=config(node);
+            long timeoutSeconds=cfg.has("timeoutSeconds")?Math.max(1,cfg.path("timeoutSeconds").asLong(3600)):
+                    cfg.has("timeoutMinutes")?Math.max(1,cfg.path("timeoutMinutes").asLong(60))*60L:3600L;
+            long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(timeoutSeconds);
+            while (!process.waitFor(250,TimeUnit.MILLISECONDS)) {
+                if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                    process.destroyForcibly();
+                    throw new CancellationException("工作流已停止");
+                }
+                if (System.nanoTime()>deadline) {
+                    process.destroyForcibly();
+                    throw new IllegalStateException((python?"Python":"Shell") + " 节点执行超时（"+timeoutSeconds+" 秒）");
+                }
+            }
+            String output=Files.readString(outputFile,StandardCharsets.UTF_8);
+            if (!output.isBlank()) log(taskId,"INFO",truncateLog(output));
+            if (process.exitValue()!=0) throw new IllegalStateException((python?"Python":"Shell") + " 脚本退出码："+process.exitValue());
+        } finally {
+            if (process!=null && process.isAlive()) process.destroyForcibly();
+            Files.deleteIfExists(scriptFile);
+            Files.deleteIfExists(outputFile);
+        }
+    }
+
+    private String truncateLog(String output) {
+        String value=output==null?"":output.strip();
+        return value.length()<=60000?value:value.substring(0,60000)+"\n… 输出已截断";
     }
 
     private void executeSeaTunnel(JsonNode node,long taskId,AtomicBoolean cancelled) throws InterruptedException {
@@ -277,10 +344,29 @@ public class LocalSchedulerGateway implements SchedulerGateway {
         throw new CancellationException("工作流停止，SeaTunnel 已取消");
     }
 
-    private void executeCondition(JsonNode node,long taskId) {
+    private boolean executeCondition(JsonNode node,long taskId) {
         String expression=config(node).path("expression").asText("true").trim();
-        boolean matched=Set.of("true","1","yes","on").contains(expression.toLowerCase(Locale.ROOT));
-        log(taskId,"INFO","条件表达式 " + expression + " => " + matched + (matched?"":"（false 按 SKIP 处理）"));
+        boolean matched=ConditionEvaluator.evaluate(expression,"SUCCESS");
+        log(taskId,"INFO","条件表达式 " + expression + " => " + matched);
+        return matched;
+    }
+
+    private boolean branchActive(String branchType, Boolean conditionMatched) {
+        if (conditionMatched==null) return true;
+        String branch=branchType==null?"NORMAL":branchType.toUpperCase(Locale.ROOT);
+        if ("TRUE".equals(branch)) return conditionMatched;
+        if ("FALSE".equals(branch)) return !conditionMatched;
+        return true; // 兼容旧发布快照：未携带 branchType 时仍按原逻辑放行。
+    }
+
+    private void markSkipped(String instanceCode, JsonNode node, String reason) {
+        long workflowInstanceId=((Number)instanceRow(instanceCode).get("id")).longValue();
+        String name=node.path("name").asText("node-"+node.path("id").asLong());
+        String type=node.path("type").asText("SQL");
+        KeyHolder keys=new GeneratedKeyHolder();
+        jdbc.update(connection->{ PreparedStatement ps=connection.prepareStatement("INSERT INTO task_instance(workflow_instance_id,node_id,node_name,node_type,attempt_no,status,started_at,finished_at,error_message) VALUES(?,?,?,?,1,'SKIPPED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,?)", Statement.RETURN_GENERATED_KEYS); ps.setLong(1,workflowInstanceId);ps.setLong(2,node.path("id").asLong());ps.setString(3,name);ps.setString(4,type);ps.setString(5,reason);return ps;},keys);
+        Number key=keys.getKey();
+        if (key!=null) log(key.longValue(),"INFO",reason);
     }
 
     private JsonNode config(JsonNode node) {
@@ -314,5 +400,7 @@ public class LocalSchedulerGateway implements SchedulerGateway {
 
     @PreDestroy public void shutdown(){ workflowPool.shutdownNow(); taskPool.shutdownNow(); }
     private record Definition(int version,String json){}
-    private record TaskOutcome(boolean success,String message){}
+    private record RuntimeEdge(long targetNodeId,String branchType){}
+    private record EdgeResolution(long targetNodeId,boolean active){}
+    private record TaskOutcome(boolean success,String message,Boolean conditionMatched){}
 }

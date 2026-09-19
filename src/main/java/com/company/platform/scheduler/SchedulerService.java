@@ -24,8 +24,10 @@ public class SchedulerService {
         this.gateway = gateway;
     }
 
-    public ScheduleConfigView get(long workflowId) {
-        workflows.get(workflowId);
+    public ScheduleConfigView get(long workflowId) { return get(workflowId, "admin"); }
+
+    public ScheduleConfigView get(long workflowId, String operator) {
+        workflows.get(workflowId, operator);
         return store.scheduleConfigs.values().stream()
                 .filter(config -> config.workflowId() == workflowId)
                 .findFirst()
@@ -33,8 +35,11 @@ public class SchedulerService {
     }
 
     @Transactional
-    public ScheduleConfigView save(long workflowId, ScheduleRequests.ScheduleRequest request) {
-        workflows.get(workflowId);
+    public ScheduleConfigView save(long workflowId, ScheduleRequests.ScheduleRequest request) { return save(workflowId, request, "admin"); }
+
+    public ScheduleConfigView save(long workflowId, ScheduleRequests.ScheduleRequest request, String operator) {
+        workflows.requireWorkflowEditAccess(workflowId, operator);
+        workflows.get(workflowId, operator);
         validateCron(request.cronExpression());
         validateTimezone(request.timezone());
         if (request.parallelism() < 1 || request.parallelism() > 100) {
@@ -42,7 +47,7 @@ public class SchedulerService {
         }
         String failureStrategy = normalizeFailureStrategy(request.failureStrategy());
         String workerGroup = request.workerGroup() == null || request.workerGroup().isBlank() ? "default" : request.workerGroup().trim();
-        ScheduleConfigView current = get(workflowId);
+        ScheduleConfigView current = get(workflowId, operator);
         long id = current.id() == 0 ? store.nextId() : current.id();
         // PUT only edits configuration. Online/offline state is changed exclusively
         // by the explicit endpoints so local state can never claim a remote schedule is enabled.
@@ -54,10 +59,13 @@ public class SchedulerService {
         return saved;
     }
 
-    public ScheduleConfigView online(long workflowId) {
-        var workflow = workflows.get(workflowId);
+    public ScheduleConfigView online(long workflowId) { return online(workflowId, "admin"); }
+
+    public ScheduleConfigView online(long workflowId, String operator) {
+        workflows.requireWorkflowEditAccess(workflowId, operator);
+        var workflow = workflows.get(workflowId, operator);
         if (!"PUBLISHED".equals(workflow.status())) throw new BadRequestException("工作流必须发布后才能上线调度");
-        ScheduleConfigView current = get(workflowId);
+        ScheduleConfigView current = get(workflowId, operator);
         validateCron(current.cronExpression());
         validateTimezone(current.timezone());
         String processCode = engineCode(workflow);
@@ -79,9 +87,12 @@ public class SchedulerService {
         }
     }
 
-    public ScheduleConfigView offline(long workflowId) {
-        var workflow = workflows.get(workflowId);
-        ScheduleConfigView current = get(workflowId);
+    public ScheduleConfigView offline(long workflowId) { return offline(workflowId, "admin"); }
+
+    public ScheduleConfigView offline(long workflowId, String operator) {
+        workflows.requireWorkflowEditAccess(workflowId, operator);
+        var workflow = workflows.get(workflowId, operator);
+        ScheduleConfigView current = get(workflowId, operator);
         if (current.id() == 0) return current;
         String processCode = engineCode(workflow);
         String scheduleId = gateway.upsertSchedule(processCode, current.cronExpression(), current.timezone(),
@@ -97,8 +108,11 @@ public class SchedulerService {
         return offline;
     }
 
-    public SchedulerGateway.RunResult backfill(long workflowId, ScheduleRequests.BackfillRequest request) {
-        var workflow = workflows.get(workflowId);
+    public SchedulerGateway.RunResult backfill(long workflowId, ScheduleRequests.BackfillRequest request) { return backfill(workflowId, request, "admin"); }
+
+    public SchedulerGateway.RunResult backfill(long workflowId, ScheduleRequests.BackfillRequest request, String operator) {
+        workflows.requireWorkflowEditAccess(workflowId, operator);
+        var workflow = workflows.get(workflowId, operator);
         if (!"PUBLISHED".equals(workflow.status())) throw new BadRequestException("工作流必须发布后才能补数据");
         if (request.parallelism() < 1 || request.parallelism() > 100) {
             throw new BadRequestException("补数据并行度必须在 1 到 100 之间");

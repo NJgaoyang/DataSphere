@@ -33,7 +33,7 @@ public class ReleaseService {
     public List<RecordView> records(){return jdbc.query("SELECT * FROM release_record ORDER BY released_at DESC LIMIT 500",(rs,n)->record(rs));}
 
     @Transactional
-    public RequestView request(ReleaseRequest r,String operator){String type=normalizeType(r.resourceType());String payload=json(r.payload());boolean approval=policy().approvalRequired();String status=approval?"PENDING_APPROVAL":"AUTO_APPROVED";
+    public RequestView request(ReleaseRequest r,String operator){String type=normalizeType(r.resourceType());if("WORKFLOW".equals(type))workflows.assertCanManage(r.resourceId(),operator(operator));String payload=json(r.payload());boolean approval=policy().approvalRequired();String status=approval?"PENDING_APPROVAL":"AUTO_APPROVED";
         jdbc.update("INSERT INTO release_request(resource_type,resource_id,resource_name,requested_version,payload_json,status,requested_by,reviewed_by,reviewed_at) VALUES(?,?,?,?,?,?,?, ?, CASE WHEN ?='AUTO_APPROVED' THEN CURRENT_TIMESTAMP ELSE NULL END)",type,r.resourceId(),r.resourceName(),r.requestedVersion(),payload,status,operator(operator),approval?null:"system",status);
         long id=jdbc.queryForObject("SELECT id FROM release_request WHERE resource_type=? AND resource_id=? ORDER BY id DESC LIMIT 1",Long.class,type,r.resourceId());
         if(approval && "METRIC".equals(type)) metrics.markPending(r.resourceId());
@@ -47,7 +47,7 @@ public class ReleaseService {
 
     private void execute(long requestId,String operator){RequestView request=get(requestId);int releasedVersion=request.requestedVersion()==null?0:request.requestedVersion();String detail="";String result="SUCCESS";
         try{switch(request.resourceType()){
-            case "WORKFLOW" -> {var r=workflows.publish(request.resourceId());releasedVersion=r.version();detail=r.message();}
+            case "WORKFLOW" -> {var r=workflows.publish(request.resourceId(),operator);releasedVersion=r.version();detail=r.message();}
             case "REALTIME" -> {var r=realtime.publish(request.resourceId(),operator);releasedVersion=r.publishedVersion()==null?r.definitionVersion():r.publishedVersion();detail="实时同步版本已发布";}
             case "DEVELOPMENT" -> {var r=development.publishFile(request.resourceId(),operator);releasedVersion=r.currentVersion();String remark=developmentRemark(requestId);var bundle=developmentSchedules.publish(request.resourceId(),releasedVersion,operator,remark);detail="开发任务 V"+releasedVersion+" 已发布（代码、调度与依赖统一生效）";}
             case "METRIC" -> {var r=metrics.publish(request.resourceId(),releasedVersion,operator);releasedVersion=r.currentVersion();detail="指标 V"+releasedVersion+" 已发布";}

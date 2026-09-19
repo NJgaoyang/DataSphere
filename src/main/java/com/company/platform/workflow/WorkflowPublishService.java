@@ -40,10 +40,15 @@ public class WorkflowPublishService {
     }
 
     @Transactional
-    public PublishResult publish(long workflowId) {
-        WorkflowView workflow = workflowService.get(workflowId);
-        DagValidator.ValidationResult validation = workflowService.validate(workflowId);
+    public PublishResult publish(long workflowId) { return publish(workflowId, "admin"); }
+
+    @Transactional
+    public PublishResult publish(long workflowId, String operator) {
+        workflowService.requireWorkflowEditAccess(workflowId, operator);
+        WorkflowView workflow = workflowService.get(workflowId, operator);
+        DagValidator.ValidationResult validation = workflowService.validate(workflowId, operator);
         if (!validation.valid()) throw new BadRequestException(validation.message());
+        validateConditionBranches(workflow);
         int version = workflow.publishedVersion() + 1;
         ObjectNode definition = mapper.createObjectNode();
         definition.put("workflowCode", workflow.workflowCode());
@@ -95,6 +100,7 @@ public class WorkflowPublishService {
             ObjectNode item = edges.addObject();
             item.put("sourceNodeId", edge.sourceNodeId());
             item.put("targetNodeId", edge.targetNodeId());
+            item.put("branchType", edge.branchType());
         }
 
         String definitionJson;
@@ -133,13 +139,39 @@ public class WorkflowPublishService {
         return new PublishResult(workflow.id(), version, effectiveProcessCode, result.status(), message);
     }
 
-    public RunResult run(long workflowId) {
-        WorkflowView workflow = workflowService.get(workflowId);
+    public RunResult run(long workflowId) { return run(workflowId, "admin"); }
+
+    public RunResult run(long workflowId, String operator) {
+        workflowService.requireWorkflowEditAccess(workflowId, operator);
+        WorkflowView workflow = workflowService.get(workflowId, operator);
         if (!"PUBLISHED".equals(workflow.status())) throw new BadRequestException("工作流必须发布后才能运行");
         String processCode = workflow.dsProcessCode() == null || workflow.dsProcessCode().isBlank()
                 ? workflow.workflowCode() : workflow.dsProcessCode();
         SchedulerGateway.RunResult result = schedulerGateway.run(processCode);
         return new RunResult(result.instanceId(), result.status(), "调度实例已提交");
+    }
+
+    public void assertCanManage(long workflowId, String operator) { workflowService.requireWorkflowEditAccess(workflowId, operator); }
+
+    private void validateConditionBranches(WorkflowView workflow) {
+        java.util.Map<Long, WorkflowNodeView> nodes = workflow.nodes().stream()
+                .collect(java.util.stream.Collectors.toMap(WorkflowNodeView::id, node -> node));
+        for (WorkflowNodeView node : workflow.nodes()) {
+            List<WorkflowEdgeView> outgoing = workflow.edges().stream().filter(edge -> edge.sourceNodeId() == node.id()).toList();
+            if (node.nodeType() == NodeType.CONDITION) {
+                java.util.Set<String> branches = outgoing.stream().map(WorkflowEdgeView::branchType).collect(java.util.stream.Collectors.toSet());
+                if (outgoing.size() != 2 || !branches.equals(java.util.Set.of("TRUE", "FALSE"))) {
+                    throw new BadRequestException("条件节点“" + node.name() + "”必须且只能配置一条“满足”分支和一条“不满足”分支");
+                }
+            } else if (outgoing.stream().anyMatch(edge -> !"NORMAL".equals(edge.branchType()))) {
+                throw new BadRequestException("只有条件节点的出边可以设置 TRUE/FALSE 分支");
+            }
+        }
+        for (WorkflowEdgeView edge : workflow.edges()) {
+            if (!nodes.containsKey(edge.sourceNodeId()) || !nodes.containsKey(edge.targetNodeId())) {
+                throw new BadRequestException("工作流连线引用了不存在的节点");
+            }
+        }
     }
 
     private NodeType resolveTaskType(String fileType, String fileName) {

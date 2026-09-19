@@ -112,7 +112,7 @@ export const integrationApi = {
 }
 
 export interface WorkflowNode { id:number; name:string; nodeType:'SQL'|'PYTHON'|'SHELL'|'SEATUNNEL'|'CONDITION'; devFileId?:number; configJson?:string; x:number; y:number; nodeCode:string }
-export interface WorkflowEdge { id:number; sourceNodeId:number; targetNodeId:number }
+export interface WorkflowEdge { id:number; sourceNodeId:number; targetNodeId:number; branchType?:'NORMAL'|'TRUE'|'FALSE' }
 export interface WorkflowView { id:number; name:string; workflowCode:string; description?:string; status:string; publishedVersion:number; nodes:WorkflowNode[]; edges:WorkflowEdge[]; dsProcessCode?:string; updatedAt?:string }
 export interface DevelopmentWorkflowDefinition { fileId:number; name:string; workflowCode:string; status:string; lifecycleStatus:string; currentVersion:number; ownerName:string; scheduleEnabled:boolean; cycleType:string; executionTime:string; cronExpression:string; timezone:string; upstreamCount:number; downstreamCount:number; runtimeStatus?:string; plannedAt?:string; startedAt?:string; finishedAt?:string; nextPlannedAt?:string; updatedAt?:string }
 export interface ProjectWorkflowDefinition { projectId:number; name:string; description?:string; taskCount:number; enabledSchedules:number; runningTasks:number; failedTasks:number }
@@ -120,7 +120,7 @@ export interface ProjectImpactTask { fileId:number; name:string; level:number; l
 export interface ProjectImpactView { projectId:number; sourceFileId:number; sourceName:string; includeSource:boolean; tasks:ProjectImpactTask[] }
 export interface ProjectRerunTask { id:number; fileId?:number; name:string; sequenceNo:number; status:string; executionId?:string; startedAt?:string; finishedAt?:string; errorMessage?:string }
 export interface ProjectRerunBatch { id:number; projectId:number; sourceFileId:number; businessDate:string; status:string; totalTasks:number; successTasks:number; failedTasks:number; waitingTasks:number; createdBy:string; createdAt?:string; startedAt?:string; finishedAt?:string; tasks:ProjectRerunTask[] }
-export interface WorkflowPayload { name:string; description?:string; nodes:Array<{name:string;nodeType:string;devFileId?:number;configJson?:string;x:number;y:number;nodeCode:string}>; edges:Array<{sourceNodeCode:string;targetNodeCode:string}> }
+export interface WorkflowPayload { name:string; description?:string; nodes:Array<{name:string;nodeType:string;devFileId?:number;configJson?:string;x:number;y:number;nodeCode:string}>; edges:Array<{sourceNodeCode:string;targetNodeCode:string;branchType?:'NORMAL'|'TRUE'|'FALSE'}> }
 export interface ScheduleConfig { id:number; workflowId:number; cronExpression:string; timezone:string; enabled:boolean; failureStrategy:string; parallelism:number; workerGroup?:string; alertGroup?:string }
 export const workflowApi = {
   list: () => api.get<WorkflowView[]>('/workflows'),
