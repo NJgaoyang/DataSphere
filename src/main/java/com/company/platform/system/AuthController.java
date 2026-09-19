@@ -6,6 +6,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.util.Map;
@@ -22,7 +24,7 @@ public class AuthController {
                                                   HttpServletRequest httpRequest, HttpServletResponse response) {
         AuthService.AuthSession session = service.login(request);
         long seconds = Math.max(0, Duration.between(java.time.Instant.now(), session.expiresAt()).getSeconds());
-        setCookie(response, httpRequest.isSecure(), session.token(), seconds);
+        setCookie(response, secureRequest(httpRequest), session.token(), seconds);
         return Result.ok(new AuthService.AuthSession("", session.username(), session.expiresAt()), "登录成功");
     }
 
@@ -30,16 +32,18 @@ public class AuthController {
     public Result<Void> changePassword(@RequestHeader(value = "Authorization", required = false) String authorization,
                                        @Valid @RequestBody AuthRequests.ChangePasswordRequest request,
                                        HttpServletRequest httpRequest, HttpServletResponse response) {
+        requireCookieMutationHeader(authorization, httpRequest);
         service.changePassword(token(authorization, httpRequest), request);
-        clearCookie(response, httpRequest.isSecure());
+        clearCookie(response, secureRequest(httpRequest));
         return Result.ok(null, "密码已修改，请使用新密码登录");
     }
 
     @PostMapping("/logout")
     public Result<Void> logout(@RequestHeader(value = "Authorization", required = false) String authorization,
                                HttpServletRequest httpRequest, HttpServletResponse response) {
+        requireCookieMutationHeader(authorization, httpRequest);
         service.logout(token(authorization, httpRequest));
-        clearCookie(response, httpRequest.isSecure());
+        clearCookie(response, secureRequest(httpRequest));
         return Result.ok(null, "已退出登录");
     }
 
@@ -61,6 +65,26 @@ public class AuthController {
         Cookie[] cookies = request.getCookies();
         if (cookies != null) for (Cookie cookie : cookies) if (COOKIE.equals(cookie.getName())) return cookie.getValue();
         return "";
+    }
+
+    private void requireCookieMutationHeader(String authorization, HttpServletRequest request) {
+        boolean bearer = authorization != null && authorization.startsWith("Bearer ");
+        if (!bearer && hasSessionCookie(request) && !"DataSphere".equals(request.getHeader("X-Requested-With")))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "请求来源校验失败");
+    }
+
+    private boolean hasSessionCookie(HttpServletRequest request) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) for (Cookie cookie : cookies) if (COOKIE.equals(cookie.getName()) && !cookie.getValue().isBlank()) return true;
+        return false;
+    }
+
+    private boolean secureRequest(HttpServletRequest request) {
+        if (request.isSecure()) return true;
+        String forwardedProto = request.getHeader("X-Forwarded-Proto");
+        if (forwardedProto != null && "https".equalsIgnoreCase(forwardedProto.split(",")[0].trim())) return true;
+        String forwarded = request.getHeader("Forwarded");
+        return forwarded != null && forwarded.toLowerCase(java.util.Locale.ROOT).contains("proto=https");
     }
 
     private void setCookie(HttpServletResponse response, boolean secure, String token, long maxAge) {

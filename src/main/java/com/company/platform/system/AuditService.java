@@ -95,7 +95,7 @@ public class AuditService {
             Object current = attributes.getRequest().getAttribute("platform.operator");
             if (current instanceof String value && !value.isBlank()) operator = value;
         }
-        return operator == null || operator.isBlank() ? "admin" : operator;
+        return operator == null || operator.isBlank() ? "system" : operator;
     }
 
     public record Page(List<AuditLogView> items,long total,int page,int pageSize) { }

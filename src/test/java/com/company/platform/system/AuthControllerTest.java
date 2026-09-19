@@ -3,6 +3,7 @@ package com.company.platform.system;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 
@@ -27,6 +28,31 @@ class AuthControllerTest {
         assertTrue(cookie.contains("platform_session=test-session-value"));
         assertTrue(cookie.contains("HttpOnly"));
         assertTrue(cookie.contains("SameSite=Lax"));
+    }
+
+    @Test
+    void forwardedHttpsMarksSessionCookieSecure() {
+        AuthService service = mock(AuthService.class);
+        when(service.login(any())).thenReturn(new AuthService.AuthSession("secure-session", "admin", Instant.now().plusSeconds(3600)));
+        AuthController controller = new AuthController(service);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Forwarded-Proto", "https");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.login(new AuthRequests.LoginRequest("admin", "test-password"), request, response);
+
+        assertTrue(response.getHeader("Set-Cookie").contains("; Secure"));
+    }
+
+    @Test
+    void cookieLogoutRequiresRequestedWithHeader() {
+        AuthService service = mock(AuthService.class);
+        AuthController controller = new AuthController(service);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setCookies(new jakarta.servlet.http.Cookie("platform_session", "test-cookie-value"));
+
+        assertThrows(ResponseStatusException.class, () -> controller.logout(null, request, new MockHttpServletResponse()));
+        verify(service, never()).logout(anyString());
     }
 
     @Test
