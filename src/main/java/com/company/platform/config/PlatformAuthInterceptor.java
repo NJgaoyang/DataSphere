@@ -23,8 +23,16 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
             return true;
         }
         String header = request.getHeader("Authorization");
-        String token = header != null && header.startsWith("Bearer ") ? header.substring(7).trim() : cookieToken(request);
+        boolean bearer = header != null && header.startsWith("Bearer ");
+        String token = bearer ? header.substring(7).trim() : cookieToken(request);
         if (auth.authenticate(token)) {
+            if (!bearer && isMutation(request) && !"DataSphere".equals(request.getHeader("X-Requested-With"))) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                response.setContentType("application/json;charset=UTF-8");
+                response.getWriter().write("{\"success\":false,\"data\":null,\"message\":\"请求来源校验失败\"}");
+                audit.record("CSRF_BLOCKED", "HTTP", null, request.getMethod() + " " + path, auth.currentUsername(token));
+                return false;
+            }
             if (!auth.hasPermission(token, request.getMethod(), path)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.setContentType("application/json;charset=UTF-8");
@@ -48,8 +56,13 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
         return "";
     }
 
+    private boolean isMutation(HttpServletRequest request) {
+        String method = request.getMethod();
+        return !(method.equalsIgnoreCase("GET") || method.equalsIgnoreCase("HEAD") || method.equalsIgnoreCase("OPTIONS"));
+    }
+
     private void auditMutation(HttpServletRequest request, String path, String operator) {
-        if (!request.getMethod().equalsIgnoreCase("GET")) {
+        if (isMutation(request)) {
             audit.record("API_MUTATION", "HTTP", null, request.getMethod() + " " + path, operator);
         }
     }

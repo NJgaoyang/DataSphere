@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import { ElMessageBox, ElMessage } from '../../ui/feedback'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
 import { flinkApi, seaTunnelEnvironmentApi, type FlinkEnvironment, type SeaTunnelEnvironment } from '../../api/domain'

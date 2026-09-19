@@ -72,10 +72,8 @@ public class WorkflowPublishService {
                 devFile = store.files.get(node.devFileId());
                 if (devFile == null) throw new BadRequestException("节点“" + node.name() + "”绑定的开发任务不存在");
                 String boundTaskName = devFile.name();
-                effectiveVersion = store.versions.values().stream()
-                        .filter(v -> v.fileId() == node.devFileId() && v.publishFlag())
-                        .max(java.util.Comparator.comparingInt(FileVersionView::versionNo))
-                        .orElseThrow(() -> new BadRequestException("开发任务“" + boundTaskName + "”还没有生产版本，请先发布任务"));
+                effectiveVersion = store.publishedFileVersion(node.devFileId());
+                if (effectiveVersion == null) throw new BadRequestException("开发任务“" + boundTaskName + "”还没有生产版本，请先发布任务");
             }
             if (effectiveVersion != null && devFile != null) {
                 effectiveType = node.nodeType() == NodeType.CONDITION ? NodeType.CONDITION : resolveTaskType(devFile.fileType(), devFile.name());

@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { ElMessageBox, ElMessage } from '../../ui/feedback'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi } from '../../api/auth'
 import DataSphereLogo from '../../components/brand/DataSphereLogo.vue'
 

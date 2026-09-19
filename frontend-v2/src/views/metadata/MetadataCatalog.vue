@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import { ElMessageBox, ElMessage } from '../../ui/feedback'
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { dataSourceApi } from '../../api/platform'
 import { metadataApi, type ColumnView, type DataSourceView, type DatabaseView, type LineageView, type TablePreview, type TableProfile, type TableView } from '../../api/domain'
 import { formatDateTime } from '../../utils/display'
@@ -149,11 +149,11 @@ onMounted(loadSources)
           <div class="table-content" v-loading="tableLoading">
             <el-table :data="filteredTables" height="100%" row-class-name="metadata-table-row" @row-click="openTable">
               <el-table-column prop="name" label="表名" min-width="280">
-                <template #default="scope"><button class="table-name" @click.stop="openTable(scope.row)">{{scope.row.name}}</button></template>
+                <template #default="scope"><button class="table-name" @click.stop="openTable(scope.row as TableView)">{{scope.row.name}}</button></template>
               </el-table-column>
               <el-table-column prop="type" label="类型" width="150"><template #default="scope"><span class="type-text">{{scope.row.type||'TABLE'}}</span></template></el-table-column>
               <el-table-column prop="comment" label="描述" min-width="360" show-overflow-tooltip><template #default="scope">{{scope.row.comment||'—'}}</template></el-table-column>
-              <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button link type="primary" @click.stop="openTable(scope.row)">查看详情</el-button></template></el-table-column>
+              <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button link type="primary" @click.stop="openTable(scope.row as TableView)">查看详情</el-button></template></el-table-column>
               <template #empty><div class="table-empty">当前数据库暂无数据表</div></template>
             </el-table>
           </div>

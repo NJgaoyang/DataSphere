@@ -6,6 +6,7 @@ import com.company.platform.config.DataSphereProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.security.SecureRandom;
 import java.security.MessageDigest;
@@ -183,6 +184,9 @@ public class AuthService {
         if (jdbc != null) jdbc.update("DELETE FROM auth_session WHERE LOWER(username)=LOWER(?)", username.trim());
         sessions.entrySet().removeIf(entry -> entry.getValue().username().equalsIgnoreCase(username.trim()));
     }
+    @Scheduled(cron = "0 25 3 * * *", zone = "Asia/Shanghai")
+    public void cleanupExpiredSessions() { purgeExpiredSessions(); }
+
     private void purgeExpiredSessions() {
         Instant now = Instant.now();
         if (jdbc != null) jdbc.update("DELETE FROM auth_session WHERE expires_at<CURRENT_TIMESTAMP");

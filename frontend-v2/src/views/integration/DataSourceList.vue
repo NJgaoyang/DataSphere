@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { ElMessageBox, ElMessage } from '../../ui/feedback'
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { type FormInstance, type FormRules } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
 import { dataSourceApi, type DataSourcePayload, type DataSourceView } from '../../api/platform'

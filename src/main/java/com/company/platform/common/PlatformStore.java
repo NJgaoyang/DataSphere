@@ -114,20 +114,14 @@ public class PlatformStore {
                         createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime()));
                 advanceId(id);
             });
-            jdbc.query("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at,lifecycle_status,ever_online,owner_name FROM dev_file WHERE recycled=FALSE", rs -> {
+            jdbc.query("SELECT id,project_id,folder_id,name,file_type,description,status,current_version,updated_at,lifecycle_status,ever_online,owner_name FROM dev_file WHERE recycled=FALSE", rs -> {
                 long id = rs.getLong("id");
                 Long folder = rs.getObject("folder_id", Long.class);
                 var updatedAt = rs.getTimestamp("updated_at");
                 files.put(id, new DevFileView(id, rs.getLong("project_id"), folder, rs.getString("name"),
-                        rs.getString("file_type"), rs.getString("content"), rs.getString("description"),
+                        rs.getString("file_type"), "", rs.getString("description"),
                         rs.getString("status"), rs.getInt("current_version"),
                         updatedAt == null ? null : updatedAt.toLocalDateTime(), rs.getString("lifecycle_status"), rs.getBoolean("ever_online"), rs.getString("owner_name")));
-                advanceId(id);
-            });
-            jdbc.query("SELECT id,file_id,version_no,content,checksum,publish_flag FROM dev_file_version", rs -> {
-                long id = rs.getLong("id");
-                versions.put(id, new FileVersionView(id, rs.getLong("file_id"), rs.getInt("version_no"),
-                        rs.getString("content"), rs.getString("checksum"), rs.getBoolean("publish_flag")));
                 advanceId(id);
             });
             jdbc.query("SELECT id,task_id,source_database,source_table,target_database,target_table,partition_column FROM integration_task_table", rs -> {
@@ -145,15 +139,6 @@ public class PlatformStore {
                         rs.getString("target_type"), rs.getString("sync_mode"), rs.getString("status"), rs.getString("lifecycle_status"),
                         rs.getString("source_config_json"), rs.getString("target_config_json"), rs.getString("transform_config_json"), rs.getString("seatunnel_config"),
                         integrationTaskTables.getOrDefault(id, List.of()), new ArrayList<>(integrationTaskDownstreams.getOrDefault(id, Set.of()))));
-                advanceId(id);
-            });
-            jdbc.query("SELECT id,task_id,execution_id,status,started_at,finished_at,error_message FROM integration_instance", rs -> {
-                long id = rs.getLong("id");
-                var started = rs.getTimestamp("started_at");
-                var finished = rs.getTimestamp("finished_at");
-                integrationInstances.put(id, new IntegrationInstanceView(id, rs.getLong("task_id"), rs.getString("execution_id"),
-                        rs.getString("status"), started == null ? null : started.toLocalDateTime(),
-                        finished == null ? null : finished.toLocalDateTime(), rs.getString("error_message")));
                 advanceId(id);
             });
             Map<Long, List<WorkflowNodeView>> loadedNodes = new HashMap<>();
@@ -273,6 +258,29 @@ public class PlatformStore {
         int updated = jdbc.update("UPDATE dev_folder SET project_id=?,parent_id=?,name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", view.projectId(), view.parentId(), view.name(), view.id());
         if (updated == 0) jdbc.update("INSERT INTO dev_folder (id,project_id,parent_id,name) VALUES (?,?,?,?)", view.id(), view.projectId(), view.parentId(), view.name());
     }
+    public DevFileView file(long id) {
+        if (jdbc == null) return files.get(id);
+        return jdbc.query("SELECT id,project_id,folder_id,name,file_type,content,description,status,current_version,updated_at,lifecycle_status,ever_online,owner_name FROM dev_file WHERE id=? AND recycled=FALSE",
+                rs -> {
+                    if (!rs.next()) return null;
+                    Long folder = rs.getObject("folder_id", Long.class);
+                    var updatedAt = rs.getTimestamp("updated_at");
+                    return new DevFileView(rs.getLong("id"), rs.getLong("project_id"), folder, rs.getString("name"),
+                            rs.getString("file_type"), rs.getString("content"), rs.getString("description"), rs.getString("status"),
+                            rs.getInt("current_version"), updatedAt == null ? null : updatedAt.toLocalDateTime(),
+                            rs.getString("lifecycle_status"), rs.getBoolean("ever_online"), rs.getString("owner_name"));
+                }, id);
+    }
+
+    /** Keep only file metadata in the production cache; code content is loaded on demand. */
+    public void rememberFile(DevFileView view) {
+        if (view == null) return;
+        if (jdbc == null) { files.put(view.id(), view); return; }
+        files.put(view.id(), new DevFileView(view.id(), view.projectId(), view.folderId(), view.name(), view.fileType(), "",
+                view.description(), view.status(), view.currentVersion(), view.updatedAt(), view.lifecycleStatus(),
+                view.everOnline(), view.ownerName()));
+    }
+
     public void persistFile(DevFileView view) {
         if (jdbc == null) return;
         int updated = jdbc.update("UPDATE dev_file SET project_id=?,folder_id=?,name=?,file_type=?,content=?,description=?,status=?,current_version=?,lifecycle_status=?,ever_online=?,owner_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -280,6 +288,27 @@ public class PlatformStore {
         if (updated == 0) jdbc.update("INSERT INTO dev_file (id,project_id,folder_id,name,file_type,content,description,status,current_version,lifecycle_status,ever_online,owner_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 view.id(), view.projectId(), view.folderId(), view.name(), view.fileType(), view.content(), view.description(), view.status(), view.currentVersion(), view.lifecycleStatus(), view.everOnline(), view.ownerName());
     }
+    public List<FileVersionView> fileVersions(long fileId) {
+        if (jdbc == null) return versions.values().stream().filter(v -> v.fileId() == fileId)
+                .sorted(java.util.Comparator.comparingInt(FileVersionView::versionNo)).toList();
+        return jdbc.query("SELECT id,file_id,version_no,content,checksum,publish_flag FROM dev_file_version WHERE file_id=? ORDER BY version_no",
+                (rs,n) -> new FileVersionView(rs.getLong("id"), rs.getLong("file_id"), rs.getInt("version_no"),
+                        rs.getString("content"), rs.getString("checksum"), rs.getBoolean("publish_flag")), fileId);
+    }
+
+    public FileVersionView fileVersion(long fileId, int versionNo) {
+        return fileVersions(fileId).stream().filter(v -> v.versionNo() == versionNo).findFirst().orElse(null);
+    }
+
+    public FileVersionView publishedFileVersion(long fileId) {
+        return fileVersions(fileId).stream().filter(FileVersionView::publishFlag)
+                .max(java.util.Comparator.comparingInt(FileVersionView::versionNo)).orElse(null);
+    }
+
+    /** Production versions live only in MySQL; JDBC-free tests keep their small in-memory fixture. */
+    public void rememberVersion(FileVersionView view) { if (jdbc == null) versions.put(view.id(), view); }
+    public void forgetVersions(long fileId) { if (jdbc == null) versions.values().removeIf(v -> v.fileId() == fileId); }
+
     public void persistVersion(FileVersionView view) {
         if (jdbc == null) return;
         int updated = jdbc.update("UPDATE dev_file_version SET file_id=?,version_no=?,content=?,checksum=?,publish_flag=? WHERE id=?",
@@ -340,6 +369,61 @@ public class PlatformStore {
         jdbc.update("DELETE FROM integration_task_table WHERE task_id=?", id);
         jdbc.update("DELETE FROM integration_task WHERE id=?", id);
     }
+    public List<IntegrationInstanceView> activeIntegrationInstances() {
+        if (jdbc == null) return integrationInstances.values().stream()
+                .filter(v -> Set.of("SUBMITTED","RUNNING","QUEUED","STARTING").contains(String.valueOf(v.status()).toUpperCase()))
+                .toList();
+        return jdbc.query("SELECT id,task_id,execution_id,status,started_at,finished_at,error_message FROM integration_instance WHERE UPPER(status) IN ('SUBMITTED','RUNNING','QUEUED','STARTING') ORDER BY id",
+                (rs,n) -> mapIntegrationInstance(rs));
+    }
+
+    public List<IntegrationInstanceView> integrationInstancesForTask(long taskId, int limit) {
+        if (jdbc == null) return integrationInstances.values().stream().filter(v -> v.taskId() == taskId)
+                .sorted(java.util.Comparator.comparing(IntegrationInstanceView::startedAt, java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
+                .limit(Math.max(1, limit)).toList();
+        int safeLimit = Math.max(1, Math.min(limit, 1000));
+        return jdbc.query("SELECT id,task_id,execution_id,status,started_at,finished_at,error_message FROM integration_instance WHERE task_id=? ORDER BY id DESC LIMIT " + safeLimit,
+                (rs,n) -> mapIntegrationInstance(rs), taskId);
+    }
+
+    public List<IntegrationInstanceView> integrationInstancesSince(LocalDateTime start) {
+        if (jdbc == null) return integrationInstances.values().stream().filter(v -> v.startedAt() != null && !v.startedAt().isBefore(start)).toList();
+        return jdbc.query("SELECT id,task_id,execution_id,status,started_at,finished_at,error_message FROM integration_instance WHERE started_at>=? ORDER BY started_at",
+                (rs,n) -> mapIntegrationInstance(rs), start);
+    }
+
+    public List<IntegrationInstanceView> recentIntegrationInstances(int limit) {
+        if (jdbc == null) return integrationInstances.values().stream()
+                .sorted(java.util.Comparator.comparing(IntegrationInstanceView::startedAt, java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
+                .limit(Math.max(1, limit)).toList();
+        int safeLimit = Math.max(1, Math.min(limit, 1000));
+        return jdbc.query("SELECT id,task_id,execution_id,status,started_at,finished_at,error_message FROM integration_instance ORDER BY id DESC LIMIT " + safeLimit,
+                (rs,n) -> mapIntegrationInstance(rs));
+    }
+
+    public IntegrationInstanceView integrationInstanceByExecution(String executionId) {
+        if (jdbc == null) return integrationInstances.values().stream().filter(v -> java.util.Objects.equals(executionId, v.executionId())).findFirst().orElse(null);
+        return jdbc.query("SELECT id,task_id,execution_id,status,started_at,finished_at,error_message FROM integration_instance WHERE execution_id=? ORDER BY id DESC LIMIT 1",
+                rs -> rs.next() ? mapIntegrationInstance(rs) : null, executionId);
+    }
+
+    public Set<Long> successfulIntegrationTaskIds() {
+        if (jdbc == null) return integrationInstances.values().stream()
+                .filter(v -> Set.of("SUCCESS","SUCCEEDED","FINISHED","COMPLETED").contains(String.valueOf(v.status()).toUpperCase()))
+                .map(IntegrationInstanceView::taskId).collect(java.util.stream.Collectors.toSet());
+        return new HashSet<>(jdbc.query("SELECT DISTINCT task_id FROM integration_instance WHERE UPPER(status) IN ('SUCCESS','SUCCEEDED','FINISHED','COMPLETED')",
+                (rs,n) -> rs.getLong(1)));
+    }
+
+    public void rememberIntegrationInstance(IntegrationInstanceView instance) { if (jdbc == null) integrationInstances.put(instance.id(), instance); }
+
+    private IntegrationInstanceView mapIntegrationInstance(java.sql.ResultSet rs) throws java.sql.SQLException {
+        var started = rs.getTimestamp("started_at");
+        var finished = rs.getTimestamp("finished_at");
+        return new IntegrationInstanceView(rs.getLong("id"), rs.getLong("task_id"), rs.getString("execution_id"), rs.getString("status"),
+                started == null ? null : started.toLocalDateTime(), finished == null ? null : finished.toLocalDateTime(), rs.getString("error_message"));
+    }
+
     public void persistIntegrationInstance(IntegrationInstanceView instance) {
         if (jdbc == null) return;
         int updated = jdbc.update("UPDATE integration_instance SET task_id=?,execution_id=?,status=?,started_at=?,finished_at=?,error_message=? WHERE id=?",

@@ -11,3 +11,6 @@ frontend-v2/dist/
 backups/
 *.log.prev
 config/datasphere.env
+frontend-v2/test-results/
+frontend-v2/playwright-report/
+frontend-v2/blob-report/

@@ -68,7 +68,7 @@ public class DevelopmentVersionFlowService {
         String targetName;
 
         if (binding != null) {
-            target = store.files.get(binding.projectFileId());
+            target = store.file(binding.projectFileId());
             if (target == null) {
                 throw new NotFoundException("原项目文件不存在，不能自动改推到其他目录");
             }
@@ -136,8 +136,8 @@ public class DevelopmentVersionFlowService {
             store.persistFile(target);
             FileVersionView pushed = copyVersion(target.id(), sourceVersion, false);
             store.persistVersion(pushed);
-            store.files.put(target.id(), target);
-            store.versions.put(pushed.id(), pushed);
+            store.rememberFile(target);
+            store.rememberVersion(pushed);
         } else {
             if ("ONLINE".equalsIgnoreCase(target.lifecycleStatus())) {
                 throw new BadRequestException("任务已上线，请先下线后再推送修改");
@@ -149,13 +149,13 @@ public class DevelopmentVersionFlowService {
             if (sameNumber == null) {
                 FileVersionView pushed = copyVersion(target.id(), sourceVersion, false);
                 store.persistVersion(pushed);
-                store.versions.put(pushed.id(), pushed);
+                store.rememberVersion(pushed);
             }
             String status = Objects.equals(onlineVersion, source.currentVersion()) ? "PUBLISHED" : "PENDING_PUBLISH";
             target = new DevFileView(target.id(), target.projectId(), target.folderId(), target.name(), target.fileType(),
                     sourceVersion.content(), description, status, source.currentVersion(), LocalDateTime.now(), target.lifecycleStatus(), target.everOnline(), target.ownerName());
             store.persistFile(target);
-            store.files.put(target.id(), target);
+            store.rememberFile(target);
         }
 
         persistDelivery(new DevFileDeliveryView(target.id(), source.id(), source.currentVersion(), onlineVersion, LocalDateTime.now()));
@@ -181,12 +181,12 @@ public class DevelopmentVersionFlowService {
             }
         }
         updates.forEach(store::persistVersion);
-        updates.forEach(item -> store.versions.put(item.id(), item));
+        updates.forEach(store::rememberVersion);
 
         DevFileView published = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(),
                 current.fileType(), target.content(), current.description(), "PUBLISHED", target.versionNo(), LocalDateTime.now(), current.lifecycleStatus(), current.everOnline(), current.ownerName());
         store.persistFile(published);
-        store.files.put(published.id(), published);
+        store.rememberFile(published);
         persistDelivery(new DevFileDeliveryView(projectFileId, delivery.sourceFileId(), delivery.pushedVersionNo(),
                 target.versionNo(), LocalDateTime.now()));
         return published;
@@ -202,12 +202,12 @@ public class DevelopmentVersionFlowService {
             FileVersionView offline = new FileVersionView(item.id(), item.fileId(), item.versionNo(),
                     item.content(), item.checksum(), false);
             store.persistVersion(offline);
-            store.versions.put(offline.id(), offline);
+            store.rememberVersion(offline);
         }
         DevFileView offlineFile = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(),
                 current.fileType(), current.content(), current.description(), "OFFLINE", current.currentVersion(), LocalDateTime.now(), "OFFLINE", current.everOnline(), current.ownerName());
         store.persistFile(offlineFile);
-        store.files.put(offlineFile.id(), offlineFile);
+        store.rememberFile(offlineFile);
         persistDelivery(new DevFileDeliveryView(projectFileId, delivery.sourceFileId(), delivery.pushedVersionNo(),
                 null, LocalDateTime.now()));
         return offlineFile;
@@ -228,7 +228,7 @@ public class DevelopmentVersionFlowService {
         FileVersionView onlineVersion = version(projectFileId, onlineVersionNo);
 
         DevFileDeliveryView delivery = deliveryForProjectFile(projectFileId);
-        DevFileView source = delivery == null ? null : store.files.get(delivery.sourceFileId());
+        DevFileView source = delivery == null ? null : store.file(delivery.sourceFileId());
         if (source != null && !isOwnedBy(source.projectId(), operator)) source = null;
         if (source == null) source = findPersonalFile(operator, projectFile.name(), projectFile.fileType());
         if (source == null) source = createPersonalBase(operator, projectFile, onlineVersion);
@@ -252,8 +252,8 @@ public class DevelopmentVersionFlowService {
                     null, null, null, null, null);
         }
 
-        DevFileView source = store.files.get(delivery.sourceFileId());
-        DevFileView project = store.files.get(delivery.projectFileId());
+        DevFileView source = store.file(delivery.sourceFileId());
+        DevFileView project = store.file(delivery.projectFileId());
         int developmentVersion = source == null ? delivery.pushedVersionNo() : source.currentVersion();
         Integer pushed = delivery.pushedVersionNo();
         Integer online = delivery.onlineVersionNo();
@@ -291,8 +291,8 @@ public class DevelopmentVersionFlowService {
         FileVersionView base = new FileVersionView(store.nextId(), source.id(), onlineVersion.versionNo(),
                 onlineVersion.content(), onlineVersion.checksum(), false);
         store.persistVersion(base);
-        store.files.put(source.id(), source);
-        store.versions.put(base.id(), base);
+        store.rememberFile(source);
+        store.rememberVersion(base);
         return source;
     }
 
@@ -312,12 +312,12 @@ public class DevelopmentVersionFlowService {
             FileVersionView base = new FileVersionView(store.nextId(), source.id(), onlineVersion.versionNo(),
                     onlineVersion.content(), onlineVersion.checksum(), false);
             store.persistVersion(base);
-            store.versions.put(base.id(), base);
+            store.rememberVersion(base);
         }
         DevFileView synchronizedFile = new DevFileView(source.id(), source.projectId(), source.folderId(), source.name(),
                 source.fileType(), onlineVersion.content(), source.description(), "DRAFT", onlineVersion.versionNo(), LocalDateTime.now(), source.lifecycleStatus(), source.everOnline(), source.ownerName());
         store.persistFile(synchronizedFile);
-        store.files.put(synchronizedFile.id(), synchronizedFile);
+        store.rememberFile(synchronizedFile);
         return synchronizedFile;
     }
 
@@ -379,10 +379,7 @@ public class DevelopmentVersionFlowService {
     }
 
     private List<FileVersionView> versions(long fileId) {
-        return store.versions.values().stream()
-                .filter(item -> item.fileId() == fileId)
-                .sorted(Comparator.comparingInt(FileVersionView::versionNo))
-                .toList();
+        return store.fileVersions(fileId);
     }
 
     private FileVersionView version(long fileId, int versionNo) {
@@ -392,16 +389,12 @@ public class DevelopmentVersionFlowService {
     }
 
     private FileVersionView findVersion(long fileId, int versionNo) {
-        return store.versions.values().stream()
-                .filter(item -> item.fileId() == fileId && item.versionNo() == versionNo)
-                .findFirst().orElse(null);
+        return store.fileVersion(fileId, versionNo);
     }
 
     private Integer publishedVersionNo(long fileId) {
-        return store.versions.values().stream()
-                .filter(item -> item.fileId() == fileId && item.publishFlag())
-                .map(FileVersionView::versionNo)
-                .max(Integer::compareTo).orElse(null);
+        FileVersionView published = store.publishedFileVersion(fileId);
+        return published == null ? null : published.versionNo();
     }
 
     private DevFileDeliveryView deliveryForProjectFile(long projectFileId) {

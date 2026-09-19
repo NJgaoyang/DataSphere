@@ -66,9 +66,7 @@ public class IntegrationExecutionMonitor {
     }
 
     private void refresh() {
-        List<IntegrationInstanceView> active = store.integrationInstances.values().stream()
-                .filter(instance -> active(instance.status()))
-                .toList();
+        List<IntegrationInstanceView> active = store.activeIntegrationInstances();
         for (IntegrationInstanceView instance : active) refreshInstance(instance);
         active.stream().map(IntegrationInstanceView::taskId).distinct().forEach(this::syncTaskStatus);
     }
@@ -124,7 +122,7 @@ public class IntegrationExecutionMonitor {
                 status, current.startedAt(), finishedAt == null ? current.finishedAt() : finishedAt,
                 message == null || message.isBlank() ? current.message() : message);
         store.persistIntegrationInstance(updated);
-        store.integrationInstances.put(updated.id(), updated);
+        store.rememberIntegrationInstance(updated);
         runtimeRepository.updateAttempt(updated.executionId(), updated.status(), updated.message());
         syncTaskStatus(updated.taskId());
         if (terminal(updated.status())) {
@@ -138,11 +136,7 @@ public class IntegrationExecutionMonitor {
     private void syncTaskStatus(long taskId) {
         IntegrationTaskView task = store.integrationTasks.get(taskId);
         if (task == null) return;
-        List<IntegrationInstanceView> instances = store.integrationInstances.values().stream()
-                .filter(instance -> instance.taskId() == taskId)
-                .sorted(Comparator.comparing(IntegrationInstanceView::startedAt,
-                        Comparator.nullsLast(Comparator.reverseOrder())))
-                .toList();
+        List<IntegrationInstanceView> instances = store.integrationInstancesForTask(taskId, 200);
         if (instances.isEmpty()) return;
         String status = instances.stream().anyMatch(instance -> active(instance.status()))
                 ? "RUNNING" : taskStatus(instances.get(0).status());

@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -81,6 +82,7 @@ public class AuditService {
     }
 
     @EventListener(ApplicationReadyEvent.class)
+    @Scheduled(cron = "0 15 3 * * *", zone = "Asia/Shanghai")
     public void applyRetentionPolicy() {
         if (jdbc == null) return;
         jdbc.update("DELETE FROM operation_audit WHERE created_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 365 DAY)");

@@ -51,44 +51,54 @@ public class AlertSettingService {
                         time(rs.getTimestamp("created_at")), time(rs.getTimestamp("updated_at"))));
     }
 
+    public AlertSettingView create(AlertSettingRequest request) { return create(request, "system"); }
+
     @Transactional
-    public AlertSettingView create(AlertSettingRequest request) {
+    public AlertSettingView create(AlertSettingRequest request, String operator) {
         validateChannel(request.channelType());
         if (blank(request.webhook())) throw new BadRequestException("请填写钉钉 Webhook 地址");
         Config config = config(request, null);
         jdbc.update("INSERT INTO alert_channel(name,channel_type,config_json,enabled) VALUES(?,?,?,?)",
                 request.name().trim(), "DINGTALK", json(config), request.enabled());
         Long id = jdbc.queryForObject("SELECT id FROM alert_channel ORDER BY id DESC LIMIT 1", Long.class);
-        audit.record("CREATE_ALERT_SETTING", "ALERT_CHANNEL", id, request.name(), "admin");
+        audit.record("CREATE_ALERT_SETTING", "ALERT_CHANNEL", id, request.name(), normalizeOperator(operator));
         return get(id == null ? 0 : id);
     }
 
+    public AlertSettingView update(long id, AlertSettingRequest request) { return update(id, request, "system"); }
+
     @Transactional
-    public AlertSettingView update(long id, AlertSettingRequest request) {
+    public AlertSettingView update(long id, AlertSettingRequest request, String operator) {
         Row current = row(id); validateChannel(request.channelType());
         Config config = config(request, parse(current.configJson()));
         jdbc.update("UPDATE alert_channel SET name=?,channel_type='DINGTALK',config_json=?,enabled=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 request.name().trim(), json(config), request.enabled(), id);
-        audit.record("UPDATE_ALERT_SETTING", "ALERT_CHANNEL", id, request.name(), "admin");
+        audit.record("UPDATE_ALERT_SETTING", "ALERT_CHANNEL", id, request.name(), normalizeOperator(operator));
         return get(id);
     }
 
+    public AlertSettingView setEnabled(long id, boolean enabled) { return setEnabled(id, enabled, "system"); }
+
     @Transactional
-    public AlertSettingView setEnabled(long id, boolean enabled) {
+    public AlertSettingView setEnabled(long id, boolean enabled, String operator) {
         row(id);
         jdbc.update("UPDATE alert_channel SET enabled=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", enabled, id);
-        audit.record(enabled ? "ENABLE_ALERT_SETTING" : "DISABLE_ALERT_SETTING", "ALERT_CHANNEL", id, null, "admin");
+        audit.record(enabled ? "ENABLE_ALERT_SETTING" : "DISABLE_ALERT_SETTING", "ALERT_CHANNEL", id, null, normalizeOperator(operator));
         return get(id);
     }
 
+    public void delete(long id) { delete(id, "system"); }
+
     @Transactional
-    public void delete(long id) {
+    public void delete(long id, String operator) {
         Row current = row(id);
         jdbc.update("DELETE FROM alert_channel WHERE id=?", id);
-        audit.record("DELETE_ALERT_SETTING", "ALERT_CHANNEL", id, current.name(), "admin");
+        audit.record("DELETE_ALERT_SETTING", "ALERT_CHANNEL", id, current.name(), normalizeOperator(operator));
     }
 
-    public String test(long id) {
+    public String test(long id) { return test(id, "system"); }
+
+    public String test(long id, String operator) {
         Row current = row(id);
         if (!current.enabled()) throw new BadRequestException("告警配置已关闭，请先启用后再测试");
         Config config = parse(current.configJson());
@@ -101,7 +111,7 @@ public class AlertSettingService {
                     "这是一条来自大数据平台的钉钉告警测试消息", "FAILED", safeMessage(ex));
             throw ex;
         }
-        audit.record("TEST_ALERT_SETTING", "ALERT_CHANNEL", id, current.name(), "admin");
+        audit.record("TEST_ALERT_SETTING", "ALERT_CHANNEL", id, current.name(), normalizeOperator(operator));
         return "测试消息已发送";
     }
 
@@ -138,6 +148,8 @@ public class AlertSettingService {
                     nullToEmpty(status), nullToEmpty(message), deliveryStatus, nullToEmpty(responseMessage));
         } catch (RuntimeException ignored) { }
     }
+
+    private String normalizeOperator(String operator) { return operator == null || operator.isBlank() ? "system" : operator.trim(); }
 
     private String safeMessage(Throwable ex) {
         return ex == null || ex.getMessage() == null || ex.getMessage().isBlank() ? "发送失败" : ex.getMessage();

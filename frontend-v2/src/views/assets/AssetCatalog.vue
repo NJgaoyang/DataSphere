@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { ElMessage } from '../../ui/feedback'
 import { computed, defineComponent, h, onMounted, ref, watch, type PropType } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { dataSourceApi, type DataSourceView } from '../../api/platform'

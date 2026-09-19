@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { ElMessageBox, ElMessage } from '../../ui/feedback'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
 import { dataSourceApi, type DataSourceView } from '../../api/platform'

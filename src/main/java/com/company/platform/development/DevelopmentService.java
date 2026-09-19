@@ -171,8 +171,8 @@ public class DevelopmentService {
         store.persistFile(view);
         FileVersionView version = newVersion(view);
         store.persistVersion(version);
-        store.files.put(id, view);
-        store.versions.put(version.id(), version);
+        store.rememberFile(view);
+        store.rememberVersion(version);
         return view;
     }
 
@@ -247,7 +247,7 @@ public class DevelopmentService {
                 String.valueOf(row.get("status")), ((Number) row.get("current_version")).intValue(), updatedAt,
                 String.valueOf(row.get("lifecycle_status")), Boolean.TRUE.equals(row.get("ever_online")) || (row.get("ever_online") instanceof Number n && n.intValue()!=0),
                 row.get("owner_name") == null ? "admin" : String.valueOf(row.get("owner_name")));
-        store.files.put(id, restored);
+        store.rememberFile(restored);
         return restored;
     }
 
@@ -259,7 +259,7 @@ public class DevelopmentService {
         requireProjectEdit(projectIds.getFirst(), operator);
         store.deleteFileData(id);
         store.files.remove(id);
-        store.versions.values().removeIf(version -> version.fileId() == id);
+        store.forgetVersions(id);
     }
 
     private boolean hasPublishedVersion(long id) {
@@ -267,9 +267,9 @@ public class DevelopmentService {
             Integer count = jdbc.queryForObject("SELECT (SELECT COUNT(*) FROM dev_file_release_bundle WHERE file_id=?) + (SELECT COUNT(*) FROM dev_file_version WHERE file_id=? AND publish_flag=TRUE)", Integer.class, id, id);
             return count != null && count > 0;
         }
-        DevFileView file = store.files.get(id);
+        DevFileView file = store.file(id);
         return file != null && "PUBLISHED".equalsIgnoreCase(file.status())
-                || store.versions.values().stream().anyMatch(v -> v.fileId() == id && v.publishFlag());
+                || store.fileVersions(id).stream().anyMatch(FileVersionView::publishFlag);
     }
 
     public DevFileView saveFile(long id, DevelopmentRequests.SaveFileRequest request) {
@@ -288,10 +288,10 @@ public class DevelopmentService {
         if (contentChanged) {
             FileVersionView version = newVersion(updated);
             store.persistVersion(version);
-            store.versions.put(version.id(), version);
+            store.rememberVersion(version);
         }
         store.persistFile(updated);
-        store.files.put(id, updated);
+        store.rememberFile(updated);
         return updated;
     }
     @Transactional
@@ -313,15 +313,14 @@ public class DevelopmentService {
         FileVersionView version = newVersion(updated);
         store.persistVersion(version);
         store.persistFile(updated);
-        store.versions.put(version.id(), version);
-        store.files.put(fileId, updated);
+        store.rememberVersion(version);
+        store.rememberFile(updated);
         return updated;
     }
 
     public List<FileVersionView> versions(long fileId) {
         requireFile(fileId);
-        return store.versions.values().stream().filter(version -> version.fileId() == fileId)
-                .sorted(Comparator.comparingInt(FileVersionView::versionNo).reversed()).toList();
+        return store.fileVersions(fileId).stream().sorted(Comparator.comparingInt(FileVersionView::versionNo).reversed()).toList();
     }
     public List<FileVersionView> versions(long fileId, String operator) { requireProjectView(requireFile(fileId).projectId(), operator); return versions(fileId); }
 
@@ -333,8 +332,8 @@ public class DevelopmentService {
         FileVersionView version = newVersion(updated);
         store.persistVersion(version);
         store.persistFile(updated);
-        store.versions.put(version.id(), version);
-        store.files.put(fileId, updated);
+        store.rememberVersion(version);
+        store.rememberFile(updated);
         return version;
     }
     @Transactional
@@ -345,8 +344,7 @@ public class DevelopmentService {
         DevFileView current = requireFile(fileId);
         requireProjectEdit(current.projectId(), operator);
         if (!"ONLINE".equalsIgnoreCase(current.lifecycleStatus())) throw new BadRequestException("开发任务当前已下线，请先上线后再发布");
-        List<FileVersionView> fileVersions = store.versions.values().stream().filter(version -> version.fileId() == fileId)
-                .sorted(Comparator.comparingInt(FileVersionView::versionNo).reversed()).toList();
+        List<FileVersionView> fileVersions = store.fileVersions(fileId).stream().sorted(Comparator.comparingInt(FileVersionView::versionNo).reversed()).toList();
         FileVersionView target = fileVersions.stream().filter(version -> version.versionNo() == current.currentVersion()).findFirst()
                 .orElseThrow(() -> new BadRequestException("当前文件没有可发布版本"));
         List<FileVersionView> updates = new ArrayList<>();
@@ -358,8 +356,8 @@ public class DevelopmentService {
         DevFileView published = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(), current.content(),
                 current.description(), "PUBLISHED", current.currentVersion(), LocalDateTime.now(), current.lifecycleStatus(), current.everOnline(), current.ownerName());
         store.persistFile(published);
-        updates.forEach(version -> store.versions.put(version.id(), version));
-        store.files.put(fileId, published);
+        updates.forEach(store::rememberVersion);
+        store.rememberFile(published);
         return published;
     }
 
@@ -371,7 +369,7 @@ public class DevelopmentService {
         clearPublishedVersions(id);
         DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(),
                 current.content(), current.description(), "DRAFT", current.currentVersion(), LocalDateTime.now(), "ONLINE", true, current.ownerName());
-        store.persistFile(updated); store.files.put(id, updated); return updated;
+        store.persistFile(updated); store.rememberFile(updated); return updated;
     }
 
     @Transactional
@@ -383,16 +381,16 @@ public class DevelopmentService {
         clearPublishedVersions(id);
         DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(),
                 current.content(), current.description(), "DRAFT", current.currentVersion(), LocalDateTime.now(), "ONLINE", current.everOnline(), current.ownerName());
-        store.persistFile(updated); store.files.put(id, updated); return updated;
+        store.persistFile(updated); store.rememberFile(updated); return updated;
     }
 
     private void clearPublishedVersions(long fileId) {
-        List<FileVersionView> updates = store.versions.values().stream()
-                .filter(version -> version.fileId() == fileId && version.publishFlag())
+        List<FileVersionView> updates = store.fileVersions(fileId).stream()
+                .filter(FileVersionView::publishFlag)
                 .map(version -> new FileVersionView(version.id(), version.fileId(), version.versionNo(), version.content(), version.checksum(), false))
                 .toList();
         updates.forEach(store::persistVersion);
-        updates.forEach(version -> store.versions.put(version.id(), version));
+        updates.forEach(store::rememberVersion);
     }
 
     @Transactional
@@ -402,7 +400,7 @@ public class DevelopmentService {
         if ("OFFLINE".equalsIgnoreCase(current.lifecycleStatus())) return current;
         DevFileView updated = new DevFileView(current.id(), current.projectId(), current.folderId(), current.name(), current.fileType(),
                 current.content(), current.description(), current.status(), current.currentVersion(), LocalDateTime.now(), "OFFLINE", current.everOnline(), current.ownerName());
-        store.persistFile(updated); store.files.put(id, updated); return updated;
+        store.persistFile(updated); store.rememberFile(updated); return updated;
     }
 
     public Map<String, Object> tree(long projectId) { requireProject(projectId); return Map.of("projectId", projectId, "folders", folders(projectId), "files", files(projectId)); }
@@ -493,7 +491,7 @@ public class DevelopmentService {
         return store.users.values().stream().filter(user -> username.equalsIgnoreCase(user.username())).map(user -> user.id()).findFirst().orElse(null);
     }
     private DevFileView requireFile(long id) {
-        DevFileView file = store.files.get(id);
+        DevFileView file = store.file(id);
         if (file == null) throw new NotFoundException("文件不存在：" + id);
         return file;
     }

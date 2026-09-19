@@ -1,12 +1,10 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import PlatformLayout from '../layouts/PlatformLayout.vue'
-import WorkbenchView from '../views/workbench/WorkbenchView.vue'
-import LoginView from '../views/auth/LoginView.vue'
 import { authApi } from '../api/auth'
 import { moduleViewPermission, hasPermission } from '../auth/permissions'
 import { productNavigation } from '../navigation'
-const routes:RouteRecordRaw[]=[{path:'/login',name:'login',component:LoginView,meta:{public:true}},{path:'/forbidden',name:'forbidden',component:()=>import('../views/auth/ForbiddenView.vue'),meta:{public:true}},{path:'/',component:PlatformLayout,children:[
-{path:'',name:'workbench',component:WorkbenchView,meta:{module:'workbench'}},
+const routes:RouteRecordRaw[]=[{path:'/login',name:'login',component:()=>import('../views/auth/LoginView.vue'),meta:{public:true}},{path:'/forbidden',name:'forbidden',component:()=>import('../views/auth/ForbiddenView.vue'),meta:{public:true}},{path:'/',component:PlatformLayout,children:[
+{path:'',name:'workbench',component:()=>import('../views/workbench/WorkbenchView.vue'),meta:{module:'workbench'}},
 {path:'integration/overview',component:()=>import('../views/integration/IntegrationOverview.vue'),meta:{module:'integration'}},
 {path:'integration/datasources',redirect:'/system/data-sources'},
 {path:'integration/batch',component:()=>import('../views/integration/BatchSyncList.vue'),meta:{module:'integration'}},

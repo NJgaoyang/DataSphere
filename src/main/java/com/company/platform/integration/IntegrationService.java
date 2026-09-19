@@ -331,10 +331,7 @@ public class IntegrationService {
     public void stop(String executionId) { gateway.cancel(executionId); }
 
     public List<IntegrationInstanceView> instances(long taskId) {
-        return store.integrationInstances.values().stream().filter(item -> item.taskId() == taskId)
-                .sorted(Comparator.comparing(IntegrationInstanceView::startedAt,
-                        Comparator.nullsLast(Comparator.reverseOrder())))
-                .toList();
+        return store.integrationInstancesForTask(taskId, 200);
     }
 
     public List<IntegrationTableView> tables(long taskId) {
@@ -375,7 +372,7 @@ public class IntegrationService {
             IntegrationInstanceView unknown = new IntegrationInstanceView(persisted.id(), persisted.taskId(), persisted.executionId(),
                     "UNKNOWN", persisted.startedAt(), LocalDateTime.now(), "SeaTunnel 无法确认执行句柄，结果需要 Reconcile 或人工核对");
             store.persistIntegrationInstance(unknown);
-            store.integrationInstances.put(unknown.id(), unknown);
+            store.rememberIntegrationInstance(unknown);
             if (runtimeRepository != null) runtimeRepository.updateAttempt(executionId, "UNKNOWN", unknown.message());
             return new SeaTunnelGateway.JobStatus(executionId, "UNKNOWN", unknown.message());
         }
@@ -383,7 +380,7 @@ public class IntegrationService {
             IntegrationInstanceView updated = new IntegrationInstanceView(persisted.id(), persisted.taskId(), persisted.executionId(),
                     status.status(), persisted.startedAt(), terminal(status.status()) ? LocalDateTime.now() : null, status.message());
             store.persistIntegrationInstance(updated);
-            store.integrationInstances.put(updated.id(), updated);
+            store.rememberIntegrationInstance(updated);
             if (runtimeRepository != null) runtimeRepository.updateAttempt(executionId, status.status(), status.message());
         }
         return status;
@@ -436,7 +433,7 @@ public class IntegrationService {
                 LocalDateTime.now(), terminal(result.status()) ? LocalDateTime.now() : null,
                 clusterId == null ? "SeaTunnel 默认执行环境" : "SeaTunnel 执行环境 #" + clusterId);
         store.persistIntegrationInstance(instance);
-        store.integrationInstances.put(instanceId, instance);
+        store.rememberIntegrationInstance(instance);
     }
 
     private void ensureRuntimeRepository() {
@@ -464,7 +461,7 @@ public class IntegrationService {
     private record BatchExecution(IntegrationBatchView batch, SeaTunnelGateway.SubmitResult result) { }
 
     private IntegrationInstanceView findInstance(String executionId) {
-        return store.integrationInstances.values().stream().filter(item -> executionId.equals(item.executionId())).findFirst().orElse(null);
+        return store.integrationInstanceByExecution(executionId);
     }
 
     private IntegrationTaskView raw(long id) {

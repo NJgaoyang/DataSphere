@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import { ElMessage } from '../../ui/feedback'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
 import { formatDateTime } from '../../utils/display'
@@ -86,8 +86,8 @@ onBeforeUnmount(() => { stopLogPolling(); window.removeEventListener('keydown', 
         <el-table-column label="结束时间" min-width="180"><template #default="s">{{ fmt(s.row.finishedAt) }}</template></el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="s">
-            <el-button link type="primary" @click="openLog(s.row)">查看日志</el-button>
-            <el-button v-if="running(s.row)" link type="danger" @click="stop(s.row)">停止</el-button>
+            <el-button link type="primary" @click="openLog(s.row as OperationInstance)">查看日志</el-button>
+            <el-button v-if="running(s.row as OperationInstance)" link type="danger" @click="stop(s.row as OperationInstance)">停止</el-button>
           </template>
         </el-table-column>
       </el-table>

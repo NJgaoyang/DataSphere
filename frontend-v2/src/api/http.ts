@@ -6,7 +6,7 @@ interface ApiEnvelope<T> {
   message: string
 }
 
-const http = axios.create({ baseURL: '/api', timeout: 30000, withCredentials: true })
+const http = axios.create({ baseURL: '/api', timeout: 30000, withCredentials: true, headers: { 'X-Requested-With': 'DataSphere' } })
 
 http.interceptors.response.use(response => response, error => {
   if (error?.response?.status === 401 && window.location.pathname !== '/login') {

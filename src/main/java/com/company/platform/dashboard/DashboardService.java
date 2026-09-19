@@ -82,8 +82,7 @@ public class DashboardService {
 
     public AssetDashboardView assets() {
         Map<String, AssetItem> items = new LinkedHashMap<>();
-        Set<Long> successfulTaskIds = store.integrationInstances.values().stream()
-                .filter(item -> isSuccess(item.status())).map(IntegrationInstanceView::taskId).collect(Collectors.toSet());
+        Set<Long> successfulTaskIds = store.successfulIntegrationTaskIds();
         for (Map.Entry<Long, List<IntegrationTableView>> entry : store.integrationTaskTables.entrySet()) {
             boolean taskSucceeded = successfulTaskIds.contains(entry.getKey());
             for (IntegrationTableView table : entry.getValue()) {
@@ -158,7 +157,7 @@ public class DashboardService {
     private List<RecentTask> recentTasks() {
         Map<Long, IntegrationTaskView> integrations = store.integrationTasks;
         List<RecentTask> result = new ArrayList<>();
-        for (IntegrationInstanceView instance : store.integrationInstances.values()) {
+        for (IntegrationInstanceView instance : store.recentIntegrationInstances(200)) {
             IntegrationTaskView task = integrations.get(instance.taskId());
             result.add(new RecentTask("integration-" + instance.id(), task == null ? "未命名同步任务" : task.name(), "数据集成",
                     instance.status(), instance.startedAt(), instance.finishedAt(), instance.message()));
@@ -189,8 +188,8 @@ public class DashboardService {
         LocalDateTime start = "hours".equals(value) ? now.minusHours(24)
                 : "thirty".equals(value) ? now.minusDays(29).toLocalDate().atStartOfDay()
                 : now.minusDays(6).toLocalDate().atStartOfDay();
-        return store.integrationInstances.values().stream().filter(item -> item.startedAt() != null)
-                .filter(item -> !item.startedAt().isBefore(start) && !item.startedAt().isAfter(now)).toList();
+        return store.integrationInstancesSince(start).stream()
+                .filter(item -> item.startedAt() != null && !item.startedAt().isAfter(now)).toList();
     }
 
     private List<TrendPoint> integrationTrend(List<IntegrationInstanceView> instances, String range) {

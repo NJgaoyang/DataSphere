@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import { ElMessageBox, ElMessage } from '../../ui/feedback'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { Bell, Delete, EditPen, Promotion } from '@element-plus/icons-vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { accessApi, type AlertSetting, type AlertSettingPayload } from '../../api/access'
@@ -47,9 +47,9 @@ onMounted(load)
       <el-table-column label="触发事件" width="130"><template #default="s"><span class="trigger-chip">{{triggerLabel(s.row.triggerEvent)}}</span></template></el-table-column>
       <el-table-column label="Webhook" min-width="260"><template #default="s"><span class="mono masked" :title="s.row.webhookMasked">{{s.row.webhookMasked}}</span><div class="secret-tip">签名密钥：{{s.row.secretConfigured?'已配置':'未配置'}}</div></template></el-table-column>
       <el-table-column label="关键词" width="120"><template #default="s">{{s.row.keyword||'—'}}</template></el-table-column>
-      <el-table-column label="状态" width="110"><template #default="s"><el-switch v-if="canEdit" :model-value="s.row.enabled" inline-prompt active-text="启用" inactive-text="停用" @change="toggle(s.row)"/><span v-else>{{s.row.enabled?'启用':'停用'}}</span></template></el-table-column>
+      <el-table-column label="状态" width="110"><template #default="s"><el-switch v-if="canEdit" :model-value="s.row.enabled" inline-prompt active-text="启用" inactive-text="停用" @change="toggle(s.row as AlertSetting)"/><span v-else>{{s.row.enabled?'启用':'停用'}}</span></template></el-table-column>
       <el-table-column label="更新时间" width="170"><template #default="s">{{fmt(s.row.updatedAt||s.row.createdAt)}}</template></el-table-column>
-      <el-table-column label="操作" width="210" fixed="right"><template #default="s"><div class="actions"><el-button link type="primary" :loading="testingId===s.row.id" @click="test(s.row)"><el-icon><Promotion/></el-icon>测试</el-button><el-button v-if="canEdit" link @click="openEdit(s.row)"><el-icon><EditPen/></el-icon>编辑</el-button><el-button v-if="canEdit" link type="danger" @click="remove(s.row)"><el-icon><Delete/></el-icon>删除</el-button></div></template></el-table-column>
+      <el-table-column label="操作" width="210" fixed="right"><template #default="s"><div class="actions"><el-button link type="primary" :loading="testingId===s.row.id" @click="test(s.row as AlertSetting)"><el-icon><Promotion/></el-icon>测试</el-button><el-button v-if="canEdit" link @click="openEdit(s.row as AlertSetting)"><el-icon><EditPen/></el-icon>编辑</el-button><el-button v-if="canEdit" link type="danger" @click="remove(s.row as AlertSetting)"><el-icon><Delete/></el-icon>删除</el-button></div></template></el-table-column>
     </el-table>
     <div v-if="!loading&&!rows.length" class="empty-alert"><el-icon><Bell/></el-icon><strong>还没有告警配置</strong><span>新增钉钉机器人后，平台可以在任务失败或成功时主动通知。</span><el-button v-if="canEdit" type="primary" plain @click="openCreate">新增告警配置</el-button></div>
   </div>
