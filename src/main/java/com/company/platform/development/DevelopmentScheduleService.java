@@ -64,6 +64,18 @@ public class DevelopmentScheduleService {
         return get(fileId);
     }
 
+    @Transactional
+    public ScheduleView deleteSchedule(long fileId, String operator) {
+        requireFile(fileId);
+        requireOfflineForEdit(fileId);
+        ScheduleView current = get(fileId);
+        if (current.currentVersion() <= 0) return current;
+        jdbc.update("DELETE FROM dev_file_schedule WHERE file_id=?", fileId);
+        syncQuartz(fileId);
+        if (developmentService != null) developmentService.bumpTaskVersion(fileId, operator(operator));
+        return get(fileId);
+    }
+
     /** Shared entry used by workflow editing. Development and workflow always mutate the same dependency set. */
     @Transactional
     public ScheduleView replaceUpstreamsFromWorkflow(long fileId, List<Long> upstreamFileIds, String operator) {

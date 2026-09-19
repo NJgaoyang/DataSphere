@@ -173,6 +173,12 @@ public class DevelopmentController {
         return Result.ok(schedules.save(id, request, operator(servletRequest)), "调度配置已保存");
     }
 
+    @DeleteMapping("/files/{id}/schedule")
+    public Result<DevelopmentScheduleService.ScheduleView> deleteSchedule(@PathVariable long id, HttpServletRequest servletRequest) {
+        service.requireFileEdit(id, operator(servletRequest));
+        return Result.ok(schedules.deleteSchedule(id, operator(servletRequest)), "调度配置已删除");
+    }
+
     @GetMapping("/files/{id}/schedule/versions/{versionNo}")
     public Result<DevelopmentScheduleService.ScheduleView> scheduleVersion(@PathVariable long id,
             @PathVariable int versionNo, HttpServletRequest servletRequest) {
