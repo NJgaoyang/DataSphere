@@ -113,12 +113,14 @@ export const integrationApi = {
 export interface WorkflowNode { id:number; name:string; nodeType:'SQL'|'PYTHON'|'SHELL'|'SEATUNNEL'|'CONDITION'; devFileId?:number; configJson?:string; x:number; y:number; nodeCode:string }
 export interface WorkflowEdge { id:number; sourceNodeId:number; targetNodeId:number }
 export interface WorkflowView { id:number; name:string; workflowCode:string; description?:string; status:string; publishedVersion:number; nodes:WorkflowNode[]; edges:WorkflowEdge[]; dsProcessCode?:string; updatedAt?:string }
+export interface DevelopmentWorkflowDefinition { fileId:number; name:string; workflowCode:string; status:string; lifecycleStatus:string; currentVersion:number; ownerName:string; scheduleEnabled:boolean; cycleType:string; executionTime:string; cronExpression:string; timezone:string; upstreamCount:number; downstreamCount:number; runtimeStatus?:string; plannedAt?:string; startedAt?:string; finishedAt?:string; nextPlannedAt?:string; updatedAt?:string }
 export interface WorkflowPayload { name:string; description?:string; nodes:Array<{name:string;nodeType:string;devFileId?:number;configJson?:string;x:number;y:number;nodeCode:string}>; edges:Array<{sourceNodeCode:string;targetNodeCode:string}> }
 export interface ScheduleConfig { id:number; workflowId:number; cronExpression:string; timezone:string; enabled:boolean; failureStrategy:string; parallelism:number; workerGroup?:string; alertGroup?:string }
 export const workflowApi = {
   list: () => api.get<WorkflowView[]>('/workflows'),
-  developmentGraph: () => api.get<WorkflowView>('/workflows/development-graph'),
-  saveDevelopmentGraph: (payload:WorkflowPayload) => api.put<WorkflowView>('/workflows/development-graph',payload),
+  developmentDefinitions: () => api.get<DevelopmentWorkflowDefinition[]>('/workflows/development-definitions'),
+  developmentGraph: (fileId:number) => api.get<WorkflowView>(`/workflows/development-graph/${fileId}`),
+  saveDevelopmentGraph: (fileId:number,payload:WorkflowPayload) => api.put<WorkflowView>(`/workflows/development-graph/${fileId}`,payload),
   get: (id:number) => api.get<WorkflowView>(`/workflows/${id}`),
   create: (payload:WorkflowPayload) => api.post<WorkflowView>('/workflows',payload),
   update: (id:number,payload:WorkflowPayload) => api.put<WorkflowView>(`/workflows/${id}`,payload),

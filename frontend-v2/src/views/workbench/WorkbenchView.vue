@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
-import { formatDateTime } from '../../utils/display'
+import { formatDateTime, formatPercent } from '../../utils/display'
 import { workbenchApi, type WorkbenchIssue, type WorkbenchRun, type WorkbenchSummary } from '../../api/platform'
 
 const router = useRouter()
@@ -16,7 +16,7 @@ const recentRuns = ref<WorkbenchRun[]>([])
 const now = ref(new Date())
 
 const successRateNumber = computed(() => Math.max(0, Math.min(100, summary.value?.successRate24h ?? 0)))
-const successRate = computed(() => summary.value?.successRate24h == null ? '—' : `${summary.value.successRate24h.toFixed(2)}%`)
+const successRate = computed(() => formatPercent(summary.value?.successRate24h))
 const runTotal24h = computed(() => (summary.value?.successful24h ?? 0) + (summary.value?.failed24h ?? 0))
 const qualityRingStyle = computed(() => ({ '--success-angle': `${successRateNumber.value * 3.6}deg` }))
 const visibleIssues = computed(() => issues.value.slice(0, 6))

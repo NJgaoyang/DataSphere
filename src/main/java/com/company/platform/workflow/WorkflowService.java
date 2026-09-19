@@ -33,69 +33,117 @@ public class WorkflowService {
     }
 
     /**
-     * System shared DAG for SQL development tasks. The graph is projected directly from
-     * dev_file_schedule_dependency, so Data Development and Workflow always show one source of truth.
+     * Data-development scripts are exposed as workflow definitions without copying them into the
+     * workflow tables. Schedule, dependency and runtime information all come from Data Development.
      */
-    public WorkflowView developmentGraph() {
-        List<DevFileView> files = store.files.values().stream()
+    public List<DevelopmentWorkflowDefinition> developmentDefinitions() {
+        return store.files.values().stream()
+                .filter(file -> "SQL".equalsIgnoreCase(file.fileType()))
+                .sorted(Comparator.comparing(DevFileView::name, String.CASE_INSENSITIVE_ORDER).thenComparingLong(DevFileView::id))
+                .map(this::developmentDefinition)
+                .toList();
+    }
+
+    private DevelopmentWorkflowDefinition developmentDefinition(DevFileView file) {
+        DevelopmentScheduleService.ScheduleView schedule = developmentSchedules == null ? null : developmentSchedules.get(file.id());
+        DevelopmentScheduleService.ScheduleRuntimeView runtime = null;
+        if (developmentSchedules != null) {
+            try { runtime = developmentSchedules.runtime(file.id()); } catch (RuntimeException ignored) { }
+        }
+        return new DevelopmentWorkflowDefinition(file.id(), file.name(), "dev_task_" + file.id(), file.status(),
+                file.lifecycleStatus(), file.currentVersion(), file.ownerName(), schedule != null && schedule.enabled(),
+                schedule == null ? "" : schedule.cycleType(), schedule == null ? "" : schedule.executionTime(),
+                schedule == null ? "" : schedule.cronExpression(), schedule == null ? "" : schedule.timezone(),
+                schedule == null ? 0 : schedule.dependencies().size(), schedule == null ? 0 : schedule.downstream().size(),
+                runtime == null ? null : runtime.status(), runtime == null ? null : runtime.plannedAt(),
+                runtime == null ? null : runtime.startedAt(), runtime == null ? null : runtime.finishedAt(),
+                runtime == null ? null : runtime.nextPlannedAt(), file.updatedAt());
+    }
+
+    /**
+     * Returns the connected dependency component around one Data Development script. The workflow
+     * name is exactly the script name; dependencies remain sourced from dev_file_schedule_dependency.
+     */
+    public WorkflowView developmentGraph(long fileId) {
+        DevFileView focus = store.files.get(fileId);
+        if (focus == null || !"SQL".equalsIgnoreCase(focus.fileType())) throw new NotFoundException("数据开发脚本不存在：" + fileId);
+        List<DevFileView> allFiles = store.files.values().stream()
                 .filter(file -> "SQL".equalsIgnoreCase(file.fileType()))
                 .sorted(Comparator.comparing(DevFileView::name, String.CASE_INSENSITIVE_ORDER).thenComparingLong(DevFileView::id))
                 .toList();
-        if (files.isEmpty()) return new WorkflowView(0, "开发任务依赖图", "development_task_graph",
-                "由数据开发调度依赖自动生成", "SYNCED", 0, List.of(), List.of());
-
-        Set<Long> fileIds = new LinkedHashSet<>();
-        files.forEach(file -> fileIds.add(file.id()));
+        Set<Long> allIds = new LinkedHashSet<>();
+        allFiles.forEach(file -> allIds.add(file.id()));
         Map<Long, Set<Long>> upstreamByTarget = new LinkedHashMap<>();
-        List<WorkflowEdgeView> edges = new ArrayList<>();
+        Map<Long, Set<Long>> neighbours = new LinkedHashMap<>();
+        List<WorkflowEdgeView> allEdges = new ArrayList<>();
         long edgeId = -1L;
         if (developmentSchedules != null) {
-            for (DevFileView target : files) {
+            for (DevFileView target : allFiles) {
                 LinkedHashSet<Long> upstreams = new LinkedHashSet<>();
                 for (DevelopmentScheduleService.DependencyView dependency : developmentSchedules.get(target.id()).dependencies()) {
-                    if (!fileIds.contains(dependency.fileId())) continue;
+                    if (!allIds.contains(dependency.fileId())) continue;
                     upstreams.add(dependency.fileId());
-                    edges.add(new WorkflowEdgeView(edgeId--, dependency.fileId(), target.id()));
+                    allEdges.add(new WorkflowEdgeView(edgeId--, dependency.fileId(), target.id()));
+                    neighbours.computeIfAbsent(target.id(), ignored -> new LinkedHashSet<>()).add(dependency.fileId());
+                    neighbours.computeIfAbsent(dependency.fileId(), ignored -> new LinkedHashSet<>()).add(target.id());
                 }
                 upstreamByTarget.put(target.id(), upstreams);
             }
         }
-
-        Map<Long, Integer> levels = dependencyLevels(files, upstreamByTarget);
+        LinkedHashSet<Long> component = new LinkedHashSet<>();
+        Deque<Long> queue = new ArrayDeque<>();
+        component.add(fileId); queue.add(fileId);
+        while (!queue.isEmpty()) {
+            long current = queue.removeFirst();
+            for (Long next : neighbours.getOrDefault(current, Set.of())) if (component.add(next)) queue.addLast(next);
+        }
+        List<DevFileView> files = allFiles.stream().filter(file -> component.contains(file.id())).toList();
+        Map<Long, Set<Long>> scopedUpstreams = new LinkedHashMap<>();
+        files.forEach(file -> scopedUpstreams.put(file.id(), upstreamByTarget.getOrDefault(file.id(), Set.of()).stream().filter(component::contains).collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new))));
+        List<WorkflowEdgeView> edges = allEdges.stream().filter(edge -> component.contains(edge.sourceNodeId()) && component.contains(edge.targetNodeId())).toList();
+        Map<Long, Integer> levels = dependencyLevels(files, scopedUpstreams);
         Map<Integer, Integer> rowByLevel = new HashMap<>();
         List<WorkflowNodeView> nodes = new ArrayList<>();
         for (DevFileView file : files) {
             int level = levels.getOrDefault(file.id(), 0);
             int row = rowByLevel.merge(level, 1, Integer::sum) - 1;
             nodes.add(new WorkflowNodeView(file.id(), stripExtension(file.name()), NodeType.SQL, file.id(), "{}",
-                    72 + level * 340, 105 + row * 140, "task_" + file.id()));
+                    72 + level * 318, 105 + row * 150, "task_" + file.id()));
         }
-        return new WorkflowView(0, "开发任务依赖图", "development_task_graph",
-                "由数据开发调度依赖自动生成，修改依赖后会同步回数据开发", "SYNCED", 0, nodes, edges);
+        return new WorkflowView(0, focus.name(), "dev_task_" + focus.id(),
+                "数据开发脚本的调度与依赖视图", "SYNCED", focus.currentVersion(), nodes, edges, null, focus.updatedAt());
     }
 
     @Transactional
-    public WorkflowView updateDevelopmentGraph(WorkflowRequests.WorkflowRequest request, String operator) {
-        if (developmentSchedules == null) return developmentGraph();
+    public WorkflowView updateDevelopmentGraph(long fileId, WorkflowRequests.WorkflowRequest request, String operator) {
+        if (developmentSchedules == null) return developmentGraph(fileId);
+        DevFileView focus = store.files.get(fileId);
+        if (focus == null || !"SQL".equalsIgnoreCase(focus.fileType())) throw new NotFoundException("数据开发脚本不存在：" + fileId);
         Map<String, Long> fileByCode = new LinkedHashMap<>();
         store.files.values().stream().filter(file -> "SQL".equalsIgnoreCase(file.fileType()))
                 .forEach(file -> fileByCode.put("task_" + file.id(), file.id()));
-        Map<Long, LinkedHashSet<Long>> desired = new LinkedHashMap<>();
-        fileByCode.values().forEach(id -> desired.put(id, new LinkedHashSet<>()));
+        LinkedHashSet<Long> desiredUpstreams = new LinkedHashSet<>();
+        String focusCode = "task_" + fileId;
         if (request.edges() != null) {
             for (WorkflowRequests.EdgeRequest edge : request.edges()) {
+                if (!focusCode.equals(edge.targetNodeCode())) continue;
                 Long source = edge.sourceNodeCode() == null ? null : fileByCode.get(edge.sourceNodeCode());
-                Long target = edge.targetNodeCode() == null ? null : fileByCode.get(edge.targetNodeCode());
-                if (source == null || target == null) throw new BadRequestException("开发任务依赖图只能连接数据开发 SQL 任务");
-                if (Objects.equals(source, target)) throw new BadRequestException("任务不能依赖自身");
-                desired.get(target).add(source);
+                if (source == null) throw new BadRequestException("上游节点必须是数据开发 SQL 任务");
+                if (source == fileId) throw new BadRequestException("任务不能依赖自身");
+                desiredUpstreams.add(source);
             }
         }
-        for (Map.Entry<Long, LinkedHashSet<Long>> entry : desired.entrySet()) {
-            developmentSchedules.replaceUpstreamsFromWorkflow(entry.getKey(), new ArrayList<>(entry.getValue()), operator);
-        }
-        return developmentGraph();
+        developmentSchedules.replaceUpstreamsFromWorkflow(fileId, new ArrayList<>(desiredUpstreams), operator);
+        return developmentGraph(fileId);
     }
+
+    public record DevelopmentWorkflowDefinition(long fileId, String name, String workflowCode, String status,
+                                                String lifecycleStatus, int currentVersion, String ownerName,
+                                                boolean scheduleEnabled, String cycleType, String executionTime,
+                                                String cronExpression, String timezone, int upstreamCount,
+                                                int downstreamCount, String runtimeStatus, LocalDateTime plannedAt,
+                                                LocalDateTime startedAt, LocalDateTime finishedAt,
+                                                LocalDateTime nextPlannedAt, LocalDateTime updatedAt) {}
 
     private Map<Long, Integer> dependencyLevels(List<DevFileView> files, Map<Long, Set<Long>> upstreamByTarget) {
         Map<Long, Integer> indegree = new LinkedHashMap<>();

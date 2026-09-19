@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import PageHeader from '../../components/PageHeader.vue'
 import { dashboardApi, type IntegrationSummary } from '../../api/platform'
 import { integrationApi, realtimeApi, type IntegrationTask, type RealtimeJob } from '../../api/domain'
+import { formatPercent } from '../../utils/display'
 
 const router = useRouter()
 const loading = ref(true)
@@ -13,7 +14,7 @@ const batch=ref<IntegrationTask[]>([])
 const realtime=ref<RealtimeJob[]>([])
 const successRate = computed(() => {
   const success = data.value?.success || 0; const failed = data.value?.failed || 0; const total = success + failed
-  return total ? `${((success / total) * 100).toFixed(1)}%` : '—'
+  return total ? formatPercent((success / total) * 100) : '—'
 })
 const successAngle = computed(() => {
   const success = data.value?.success || 0

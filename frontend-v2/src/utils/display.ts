@@ -3,6 +3,14 @@ export function formatDateTime(value?: string | null) {
   return String(value).replace('T', ' ').replace(/\.\d+(?=$|[+-])/,'').replace(/Z$/,'').slice(0, 19)
 }
 
+
+export function formatPercent(value?: number | null, digits = 1) {
+  if (value == null || Number.isNaN(Number(value))) return '—'
+  const rounded = Number(Number(value).toFixed(digits))
+  if (rounded === 100) return '100%'
+  return `${rounded.toFixed(digits)}%`
+}
+
 export function statusLabel(status?: string | null) {
   const value = String(status || 'UNKNOWN').trim().toUpperCase()
   const labels: Record<string,string> = {

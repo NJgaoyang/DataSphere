@@ -19,9 +19,10 @@ public class WorkflowController {
         this.service = service; this.publishService = publishService; this.schedulerService = schedulerService;
     }
     @GetMapping public Result<List<WorkflowView>> list() { return Result.ok(service.list()); }
-    @GetMapping("/development-graph") public Result<WorkflowView> developmentGraph() { return Result.ok(service.developmentGraph()); }
-    @PutMapping("/development-graph") public Result<WorkflowView> updateDevelopmentGraph(@Valid @RequestBody WorkflowRequests.WorkflowRequest request, HttpServletRequest servletRequest) {
-        return Result.ok(service.updateDevelopmentGraph(request, operator(servletRequest)), "开发任务依赖已同步");
+    @GetMapping("/development-definitions") public Result<List<WorkflowService.DevelopmentWorkflowDefinition>> developmentDefinitions() { return Result.ok(service.developmentDefinitions()); }
+    @GetMapping("/development-graph/{fileId}") public Result<WorkflowView> developmentGraph(@PathVariable long fileId) { return Result.ok(service.developmentGraph(fileId)); }
+    @PutMapping("/development-graph/{fileId}") public Result<WorkflowView> updateDevelopmentGraph(@PathVariable long fileId, @Valid @RequestBody WorkflowRequests.WorkflowRequest request, HttpServletRequest servletRequest) {
+        return Result.ok(service.updateDevelopmentGraph(fileId, request, operator(servletRequest)), "开发任务依赖已同步");
     }
     @PostMapping public Result<WorkflowView> create(@Valid @RequestBody WorkflowRequests.WorkflowRequest request, HttpServletRequest servletRequest) { return Result.ok(service.create(request, operator(servletRequest))); }
     @PutMapping("/{id}") public Result<WorkflowView> update(@PathVariable long id, @Valid @RequestBody WorkflowRequests.WorkflowRequest request, HttpServletRequest servletRequest) { return Result.ok(service.update(id, request, operator(servletRequest)), "工作流已保存"); }

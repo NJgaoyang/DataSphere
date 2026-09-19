@@ -42,13 +42,19 @@ class WorkflowServiceTest {
 
         WorkflowService service = new WorkflowService(store, new DagValidator());
         service.setDevelopmentSchedules(schedules);
-        WorkflowView graph = service.developmentGraph();
+        WorkflowView graph = service.developmentGraph(22L);
 
+        assertEquals("dwd_city.sql", graph.name());
         assertEquals(2, graph.nodes().size());
         assertEquals(1, graph.edges().size());
         assertEquals(11L, graph.edges().getFirst().sourceNodeId());
         assertEquals(22L, graph.edges().getFirst().targetNodeId());
         assertTrue(graph.nodes().stream().allMatch(node -> node.devFileId() != null));
+        var definitions = service.developmentDefinitions();
+        assertEquals(2, definitions.size());
+        assertEquals("dim_city.sql", definitions.get(0).name());
+        assertEquals("dwd_city.sql", definitions.get(1).name());
+        assertEquals(1, definitions.get(1).upstreamCount());
     }
 
     private DevelopmentScheduleService.ScheduleView schedule(long fileId, List<DevelopmentScheduleService.DependencyView> dependencies) {
