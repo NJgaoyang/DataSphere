@@ -1348,7 +1348,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.ds-integration-page{padding-top:28px;padding-bottom:36px;background:linear-gradient(180deg,#fbfdff 0%,#f8fbff 100%)}
+.ds-integration-page{padding-top:10px;padding-bottom:36px;background:linear-gradient(180deg,#fbfdff 0%,#f8fbff 100%)}
 .integration-list-surface{overflow:hidden;border:1px solid #e4ebf5!important;border-radius:16px!important;background:rgba(255,255,255,.97)!important;box-shadow:0 10px 30px rgba(42,83,163,.04)!important}.integration-list-surface .ds-toolbar{min-height:58px;padding:10px 14px!important;border-bottom:1px solid #edf2f7;background:#fbfdff}.integration-list-surface :deep(.el-input__wrapper),.integration-list-surface :deep(.el-select__wrapper){box-shadow:0 0 0 1px #dfe8f3 inset!important;border-radius:9px!important}.integration-list-surface :deep(.el-table){--el-table-header-bg-color:#fbfcfe;--el-table-row-hover-bg-color:#f8fbff;--el-table-border-color:#eef2f7}.integration-list-surface :deep(.el-table th.el-table__cell){height:44px;background:#fbfcfe!important;color:#78889f;font-size:11px;font-weight:650}.integration-list-surface :deep(.el-table td.el-table__cell){border-bottom-color:#f0f3f7}.integration-list-surface :deep(.el-table__inner-wrapper:before){display:none}.task-name-link{color:#2f78e8!important;font-weight:650}.toolbar-count{color:#8392a7!important}.publish-state-tag,.task-state-tag{border-radius:999px!important;font-weight:650!important}
 
 .toolbar-wrap{gap:10px}.toolbar-count{font-size:12px;color:var(--ds-text-secondary)}

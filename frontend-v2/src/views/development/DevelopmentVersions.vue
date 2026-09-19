@@ -12,7 +12,7 @@ onMounted(boot)
 <style scoped>.version-grid{display:grid;grid-template-columns:260px minmax(0,1fr);gap:12px}.file-row{display:flex;flex-direction:column;width:100%;border:0;border-top:1px solid var(--ds-border-soft);background:#fff;padding:11px 14px;text-align:left;cursor:pointer}.file-row.active{background:var(--ds-brand-soft);color:var(--ds-brand)}.file-row small{margin-top:4px;color:var(--ds-text-tertiary)}code{font-size:11px;white-space:nowrap}
 
 /* DataSphere light product theme — visual overrides only */
-.ds-page{padding-top:28px;padding-bottom:36px;background:linear-gradient(180deg,#fbfdff 0%,#f8fbff 100%)}
+.ds-page{padding-top:10px;padding-bottom:36px;background:linear-gradient(180deg,#fbfdff 0%,#f8fbff 100%)}
 .version-grid{grid-template-columns:260px minmax(0,1fr);gap:14px}.version-grid>.ds-card{overflow:hidden;border:1px solid #e4ebf5;border-radius:16px;background:rgba(255,255,255,.97);box-shadow:0 10px 30px rgba(42,83,163,.04)}
 .version-grid .ds-toolbar{padding:12px;border-bottom:1px solid #edf2f7;background:#fbfdff}.version-grid :deep(.el-select__wrapper){border-radius:9px;box-shadow:0 0 0 1px #dfe8f3 inset}
 .file-row{border-top-color:#eef2f7;padding:12px 14px;color:#42566f}.file-row:hover{background:#f7faff}.file-row.active{background:#eaf2ff;color:#2468d8;box-shadow:inset 3px 0 0 #3b82f6}.file-row strong{font-size:12px}.file-row small{color:#8b99ad}
