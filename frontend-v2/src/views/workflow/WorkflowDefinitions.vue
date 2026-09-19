@@ -163,7 +163,7 @@ function payload(){const nodes=(graph?.getNodes()||[]).map(n=>{const p=n.getPosi
 async function save(){
   saving.value=true
   try{
-    if(developmentMode.value&&focusFileId.value){const saved=await workflowApi.saveDevelopmentGraph(focusFileId.value,payload());current.value=saved;await loadBase();focusSchedule.value=await developmentApi.schedule(focusFileId.value);initGraph(saved);dirty.value=false;ElMessage.success('上游依赖已同步回数据开发');return}
+    if(developmentMode.value&&focusFileId.value){const saved=await workflowApi.saveDevelopmentGraph(focusFileId.value,payload());current.value=saved;await loadBase();currentDev.value=devDefinitions.value.find(x=>x.fileId===focusFileId.value);focusSchedule.value=await developmentApi.schedule(focusFileId.value);initGraph(saved);dirty.value=false;ElMessage.success('上游依赖已同步回数据开发');return}
     if(!form.name.trim())return ElMessage.warning('请输入工作流名称')
     if(!graph?.getNodes().length)return ElMessage.warning('请至少添加一个任务节点')
     const saved=current.value?await workflowApi.update(current.value.id,payload()):await workflowApi.create(payload());current.value=await workflowApi.get(saved.id);form.name=current.value.name;form.description=current.value.description||'';await loadBase();initGraph(current.value);dirty.value=false;ElMessage.success('工作流已保存')
