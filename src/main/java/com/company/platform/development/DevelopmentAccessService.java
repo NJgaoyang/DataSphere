@@ -62,6 +62,11 @@ public class DevelopmentAccessService {
         catch (com.company.platform.common.ForbiddenException ex) { return false; }
     }
 
+    public boolean canProjectEdit(long projectId, String operator) {
+        try { return projectAccess(projectId, operator).edit(); }
+        catch (com.company.platform.common.ForbiddenException ex) { return false; }
+    }
+
     public void requireProjectView(long projectId, String operator) { projectAccess(projectId, operator); }
 
     public void requireProjectEdit(long projectId, String operator) {

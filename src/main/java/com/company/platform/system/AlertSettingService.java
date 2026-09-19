@@ -7,6 +7,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.crypto.Mac;
@@ -24,7 +27,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 @Service
 public class AlertSettingService {
@@ -34,10 +36,13 @@ public class AlertSettingService {
     private final PasswordCipher cipher;
     private final AuditService audit;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private ThreadPoolTaskExecutor backgroundExecutor;
 
     public AlertSettingService(JdbcTemplate jdbc, ObjectMapper mapper, PasswordCipher cipher, AuditService audit) {
         this.jdbc = jdbc; this.mapper = mapper; this.cipher = cipher; this.audit = audit;
     }
+    @Autowired(required = false)
+    public void setBackgroundExecutor(@Qualifier("platformBackgroundExecutor") ThreadPoolTaskExecutor executor) { this.backgroundExecutor = executor; }
 
     public List<AlertSettingView> list() {
         return jdbc.query("SELECT id,name,channel_type,config_json,enabled,created_at,updated_at FROM alert_channel ORDER BY id DESC",
@@ -104,7 +109,9 @@ public class AlertSettingService {
         List<Long> channelIds = jdbc.query("SELECT id FROM alert_channel WHERE enabled=TRUE AND UPPER(channel_type)='DINGTALK'",
                 (rs, n) -> rs.getLong("id"));
         for (Long channelId : channelIds) {
-            CompletableFuture.runAsync(() -> sendIfStillEnabled(channelId, taskName, status, message, durationMs, rows, qps));
+            Runnable send = () -> sendIfStillEnabled(channelId, taskName, status, message, durationMs, rows, qps);
+            if (backgroundExecutor != null) backgroundExecutor.execute(send);
+            else Thread.ofVirtual().name("alert-send-" + channelId).start(send);
         }
     }
 

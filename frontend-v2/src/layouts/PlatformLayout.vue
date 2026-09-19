@@ -30,7 +30,7 @@ const sideItems = computed(() => {
 function go(path: string) { void router.push(path) }
 function roleName(value:string){return ({ADMIN:'平台管理员',DEVELOPER:'开发者',RELEASE_MANAGER:'发布审核人',VIEWER:'只读用户',USER:'普通用户'} as Record<string,string>)[value]||value}
 async function loadMe(){try{const current=await authApi.me();me.value=current;username.value=current.username||'admin';displayName.value=current.displayName||current.username||'用户';roleCode.value=current.roleCode||'USER'}catch{}}
-async function logout(){try{await authApi.logout()}catch{}localStorage.removeItem('platform_auth_token');await router.replace('/login')}
+async function logout(){try{await authApi.logout()}catch{}await router.replace('/login')}
 onMounted(loadMe)
 </script>
 

@@ -23,7 +23,7 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
             return true;
         }
         String header = request.getHeader("Authorization");
-        String token = header != null && header.startsWith("Bearer ") ? header.substring(7).trim() : "";
+        String token = header != null && header.startsWith("Bearer ") ? header.substring(7).trim() : cookieToken(request);
         if (auth.authenticate(token)) {
             if (!auth.hasPermission(token, request.getMethod(), path)) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
@@ -40,6 +40,12 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write("{\"success\":false,\"data\":null,\"message\":\"请先登录平台\"}");
         return false;
+    }
+
+    private String cookieToken(HttpServletRequest request) {
+        if (request.getCookies() != null) for (jakarta.servlet.http.Cookie cookie : request.getCookies())
+            if ("platform_session".equals(cookie.getName())) return cookie.getValue();
+        return "";
     }
 
     private void auditMutation(HttpServletRequest request, String path, String operator) {

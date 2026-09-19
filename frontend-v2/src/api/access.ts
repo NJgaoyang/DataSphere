@@ -4,13 +4,14 @@ export interface PlatformUser { id:number; username:string; displayName:string; 
 export interface PlatformRole { id:number; roleCode:string; roleName:string; permissions:string[] }
 export interface DataSourcePermission { dataSourceId:number; dataSourceName:string; userId:number; username:string; displayName:string; permissionCode:'VIEW'|'QUERY'|'EDIT' }
 export interface AuditLog { id:number; action:string; resourceType:string; resourceId?:number; detail?:string; operatorName:string; createdAt:string }
+export interface AuditPage { items:AuditLog[]; total:number; page:number; pageSize:number }
 export interface AlertSetting { id:number; name:string; channelType:string; triggerEvent:string; webhookMasked:string; secretConfigured:boolean; keyword:string; customTemplate:string; enabled:boolean; createdAt?:string; updatedAt?:string }
 export interface AlertSettingPayload { name:string; channelType:'DINGTALK'; triggerEvent:'FAILURE_ONLY'|'SUCCESS_AND_FAILURE'|'ALL'; webhook:string; secret:string; keyword:string; customTemplate:string; enabled:boolean }
 
 export const accessApi = {
   users: () => api.get<PlatformUser[]>('/system/users'),
   roles: () => api.get<PlatformRole[]>('/system/roles'),
-  auditLogs: () => api.get<AuditLog[]>('/system/audit-logs'),
+  auditLogs: (params?:{action?:string;operator?:string;page?:number;pageSize?:number}) => api.get<AuditPage>('/system/audit-logs',{params}),
   createUser: (payload:unknown) => api.post<PlatformUser>('/system/users', payload),
   updateUser: (id:number,payload:unknown) => api.put<PlatformUser>(`/system/users/${id}`, payload),
   createRole: (payload:{roleCode:string;roleName:string}) => api.post<PlatformRole>('/system/roles', payload),

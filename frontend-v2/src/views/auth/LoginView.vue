@@ -17,13 +17,10 @@ const year=new Date().getFullYear()
 const redirectTarget=computed(()=>typeof route.query.redirect==='string'&&route.query.redirect.startsWith('/')?route.query.redirect:'/')
 
 onMounted(async()=>{
-  const token=localStorage.getItem('platform_auth_token')
-  if(!token){checkingSession.value=false;return}
   try{
     const me=await authApi.me()
     if(me.authenticated){await router.replace(redirectTarget.value);return}
   }catch{
-    localStorage.removeItem('platform_auth_token')
   }
   checkingSession.value=false
 })
@@ -35,8 +32,7 @@ async function submit(){
   if(!form.password)return ElMessage.warning('请输入密码')
   loading.value=true
   try{
-    const session=await authApi.login(username,form.password)
-    localStorage.setItem('platform_auth_token',session.token)
+    await authApi.login(username,form.password)
     if(rememberUsername.value)localStorage.setItem('datasphere_remember_username',username)
     else localStorage.removeItem('datasphere_remember_username')
     await router.replace(redirectTarget.value)

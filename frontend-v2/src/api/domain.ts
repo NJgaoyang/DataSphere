@@ -66,7 +66,9 @@ export const developmentApi = {
 }
 
 export interface IntegrationTable { id:number; taskId:number; sourceDatabase:string; sourceTable:string; targetDatabase:string; targetTable:string; partitionColumn?:string }
-export interface IntegrationTask { id:number; name:string; sourceType:string; targetType:string; syncMode:string; status:string; lifecycleStatus:string; sourceConfigJson:string; targetConfigJson:string; transformConfigJson:string; seatunnelConfig:string; tables:IntegrationTable[] }
+export interface IntegrationTask { id:number; projectId?:number; name:string; sourceType:string; targetType:string; syncMode:string; status:string; lifecycleStatus:string; sourceConfigJson:string; targetConfigJson:string; transformConfigJson:string; seatunnelConfig:string; tables:IntegrationTable[]; downstreamFileIds:number[] }
+export interface IntegrationProjectOption { id:number; name:string }
+export interface IntegrationDownstreamOption { id:number; name:string; fileType:string; ownerName?:string; lifecycleStatus:string }
 export interface IntegrationTaskSummary { createdAt?:string; createdBy:string; lastRunAt?:string; nextRunAt?:string; durationMs?:number; dataCount?:number }
 export interface IntegrationTaskSchedule { taskId:number; cronExpression:string; timezone:string; enabled:boolean }
 export interface IntegrationInstance { id:number; taskId:number; executionId:string; status:string; startedAt?:string; finishedAt?:string; message?:string }
@@ -74,7 +76,7 @@ export interface IntegrationBatch { id:number; taskId:number; batchCode:string; 
 export interface IntegrationAttempt { id:number; batchId:number; attemptNo:number; executionId?:string; status:string; startedAt?:string; finishedAt?:string; errorMessage?:string; createdAt?:string }
 export interface IntegrationCursor { taskId:number; cursorColumn?:string; cursorValue?:string; updatedAt?:string }
 export interface IntegrationTaskPayload {
-  name:string; sourceType:string; targetType:string; syncMode:string; sourceDataSourceId:number; targetDataSourceId:number;
+  name:string; projectId?:number; downstreamFileIds:number[]; sourceType:string; targetType:string; syncMode:string; sourceDataSourceId:number; targetDataSourceId:number;
   source:{host:string;port:number;database:string;username:string;password:string;table:string};
   target:{host:string;port:number;database:string;username:string;password:string;table:string};
   mappings:Array<{source:string;target:string}>; options:Record<string,unknown>;
@@ -82,6 +84,8 @@ export interface IntegrationTaskPayload {
 }
 export const integrationApi = {
   list: () => api.get<IntegrationTask[]>('/integration/tasks'),
+  projectOptions: () => api.get<IntegrationProjectOption[]>('/integration/tasks/project-options'),
+  projectDownstreams: (projectId:number) => api.get<IntegrationDownstreamOption[]>('/integration/tasks/project-downstreams',{params:{projectId}}),
   get: (id:number) => api.get<IntegrationTask>(`/integration/tasks/${id}`),
   summary: (id:number) => api.get<IntegrationTaskSummary>(`/integration/tasks/${id}/summary`),
   schedule: (id:number) => api.get<IntegrationTaskSchedule>(`/integration/tasks/${id}/schedule`),
@@ -116,10 +120,10 @@ export interface WorkflowEdge { id:number; sourceNodeId:number; targetNodeId:num
 export interface WorkflowView { id:number; name:string; workflowCode:string; description?:string; status:string; publishedVersion:number; nodes:WorkflowNode[]; edges:WorkflowEdge[]; dsProcessCode?:string; updatedAt?:string }
 export interface DevelopmentWorkflowDefinition { fileId:number; name:string; workflowCode:string; status:string; lifecycleStatus:string; currentVersion:number; ownerName:string; scheduleEnabled:boolean; cycleType:string; executionTime:string; cronExpression:string; timezone:string; upstreamCount:number; downstreamCount:number; runtimeStatus?:string; plannedAt?:string; startedAt?:string; finishedAt?:string; nextPlannedAt?:string; updatedAt?:string }
 export interface ProjectWorkflowDefinition { projectId:number; name:string; description?:string; taskCount:number; enabledSchedules:number; runningTasks:number; failedTasks:number }
-export interface ProjectImpactTask { fileId:number; name:string; level:number; lifecycleStatus:string; runtimeStatus:string }
-export interface ProjectImpactView { projectId:number; sourceFileId:number; sourceName:string; includeSource:boolean; tasks:ProjectImpactTask[] }
-export interface ProjectRerunTask { id:number; fileId?:number; name:string; sequenceNo:number; status:string; executionId?:string; startedAt?:string; finishedAt?:string; errorMessage?:string }
-export interface ProjectRerunBatch { id:number; projectId:number; sourceFileId:number; businessDate:string; status:string; totalTasks:number; successTasks:number; failedTasks:number; waitingTasks:number; createdBy:string; createdAt?:string; startedAt?:string; finishedAt?:string; tasks:ProjectRerunTask[] }
+export interface ProjectImpactTask { fileId:number; name:string; fileType:string; level:number; lifecycleStatus:string; runtimeStatus:string }
+export interface ProjectImpactView { projectId:number; sourceFileId?:number; sourceIntegrationTaskId?:number; sourceName:string; includeSource:boolean; tasks:ProjectImpactTask[] }
+export interface ProjectRerunTask { id:number; fileId?:number; name:string; fileType?:string; sequenceNo:number; status:string; executionId?:string; startedAt?:string; finishedAt?:string; errorMessage?:string; outputLog?:string }
+export interface ProjectRerunBatch { id:number; projectId:number; sourceFileId?:number; sourceIntegrationTaskId?:number; parentBatchId?:number; businessDate:string; status:string; cancelRequested:boolean; sourceStatus?:string; sourceExecutionId?:string; sourceErrorMessage?:string; totalTasks:number; successTasks:number; failedTasks:number; waitingTasks:number; createdBy:string; createdAt?:string; startedAt?:string; finishedAt?:string; tasks:ProjectRerunTask[] }
 export interface WorkflowPayload { name:string; description?:string; nodes:Array<{name:string;nodeType:string;devFileId?:number;configJson?:string;x:number;y:number;nodeCode:string}>; edges:Array<{sourceNodeCode:string;targetNodeCode:string;branchType?:'NORMAL'|'TRUE'|'FALSE'}> }
 export interface ScheduleConfig { id:number; workflowId:number; cronExpression:string; timezone:string; enabled:boolean; failureStrategy:string; parallelism:number; workerGroup?:string; alertGroup?:string }
 export const workflowApi = {
@@ -128,8 +132,12 @@ export const workflowApi = {
   projectDefinitions: () => api.get<ProjectWorkflowDefinition[]>('/workflows/project-definitions'),
   projectGraph: (projectId:number) => api.get<WorkflowView>(`/workflows/project-graph/${projectId}`),
   projectImpact: (projectId:number,fileId:number,includeSource=false) => api.get<ProjectImpactView>(`/workflows/project-impact/${projectId}/${fileId}`,{params:{includeSource}}),
-  startProjectRerun: (payload:{projectId:number;sourceFileId:number;includeSource:boolean;businessDate:string}) => api.post<ProjectRerunBatch>('/workflows/project-reruns',payload),
+  projectImpactIntegration: (projectId:number,taskId:number,includeSource=false) => api.get<ProjectImpactView>(`/workflows/project-impact-integration/${projectId}/${taskId}`,{params:{includeSource}}),
+  startProjectRerun: (payload:{projectId:number;sourceFileId?:number;sourceIntegrationTaskId?:number;includeSource:boolean;businessDate:string}) => api.post<ProjectRerunBatch>('/workflows/project-reruns',payload),
+  projectReruns: (projectId:number,limit=30) => api.get<ProjectRerunBatch[]>('/workflows/project-reruns',{params:{projectId,limit}}),
   projectRerun: (batchId:number) => api.get<ProjectRerunBatch>(`/workflows/project-reruns/${batchId}`),
+  cancelProjectRerun: (batchId:number) => api.post<ProjectRerunBatch>(`/workflows/project-reruns/${batchId}/cancel`),
+  retryProjectRerun: (batchId:number) => api.post<ProjectRerunBatch>(`/workflows/project-reruns/${batchId}/retry`),
   developmentGraph: (fileId:number) => api.get<WorkflowView>(`/workflows/development-graph/${fileId}`),
   saveDevelopmentGraph: (fileId:number,payload:WorkflowPayload) => api.put<WorkflowView>(`/workflows/development-graph/${fileId}`,payload),
   get: (id:number) => api.get<WorkflowView>(`/workflows/${id}`),

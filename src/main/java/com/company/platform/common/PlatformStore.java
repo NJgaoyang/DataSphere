@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.time.LocalDateTime;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -54,6 +55,7 @@ public class PlatformStore {
     public final Map<Long, FileVersionView> versions = new ConcurrentHashMap<>();
     public final Map<Long, IntegrationTaskView> integrationTasks = new ConcurrentHashMap<>();
     public final Map<Long, List<IntegrationTableView>> integrationTaskTables = new ConcurrentHashMap<>();
+    public final Map<Long, Set<Long>> integrationTaskDownstreams = new ConcurrentHashMap<>();
     public final Map<Long, WorkflowView> workflows = new ConcurrentHashMap<>();
     public final Map<Long, LineageView> lineages = new ConcurrentHashMap<>();
     public final Map<Long, ScheduleConfigView> scheduleConfigs = new ConcurrentHashMap<>();
@@ -61,11 +63,9 @@ public class PlatformStore {
     public final Map<Long, RoleView> roles = new ConcurrentHashMap<>();
     public final Map<Long, Set<String>> userPermissions = new ConcurrentHashMap<>();
     public final Map<Long, AlertChannelView> alertChannels = new ConcurrentHashMap<>();
-    public final Map<Long, AuditLogView> auditLogs = new ConcurrentHashMap<>();
     public final Map<Long, IntegrationInstanceView> integrationInstances = new ConcurrentHashMap<>();
     public final Map<String, String> projectPermissions = new ConcurrentHashMap<>();
     public final Map<String, String> datasourcePermissions = new ConcurrentHashMap<>();
-    public final Map<Long, String> operationLogs = new ConcurrentHashMap<>();
 
     public long nextId() { return ids.incrementAndGet(); }
 
@@ -137,12 +137,14 @@ public class PlatformStore {
                         rs.getString("target_database"), rs.getString("target_table"), rs.getString("partition_column")));
                 advanceId(rs.getLong("id"));
             });
-            jdbc.query("SELECT id,name,source_type,target_type,sync_mode,status,lifecycle_status,source_config_json,target_config_json,transform_config_json,seatunnel_config FROM integration_task", rs -> {
+            jdbc.query("SELECT task_id,file_id FROM integration_task_downstream", (org.springframework.jdbc.core.RowCallbackHandler) rs ->
+                    integrationTaskDownstreams.computeIfAbsent(rs.getLong("task_id"), ignored -> ConcurrentHashMap.newKeySet()).add(rs.getLong("file_id")));
+            jdbc.query("SELECT id,project_id,name,source_type,target_type,sync_mode,status,lifecycle_status,source_config_json,target_config_json,transform_config_json,seatunnel_config FROM integration_task", rs -> {
                 long id = rs.getLong("id");
-                integrationTasks.put(id, new IntegrationTaskView(id, rs.getString("name"), rs.getString("source_type"),
+                integrationTasks.put(id, new IntegrationTaskView(id, rs.getObject("project_id", Long.class), rs.getString("name"), rs.getString("source_type"),
                         rs.getString("target_type"), rs.getString("sync_mode"), rs.getString("status"), rs.getString("lifecycle_status"),
                         rs.getString("source_config_json"), rs.getString("target_config_json"), rs.getString("transform_config_json"), rs.getString("seatunnel_config"),
-                        integrationTaskTables.getOrDefault(id, List.of())));
+                        integrationTaskTables.getOrDefault(id, List.of()), new ArrayList<>(integrationTaskDownstreams.getOrDefault(id, Set.of()))));
                 advanceId(id);
             });
             jdbc.query("SELECT id,task_id,execution_id,status,started_at,finished_at,error_message FROM integration_instance", rs -> {
@@ -234,14 +236,6 @@ public class PlatformStore {
                 alertChannels.put(id, new AlertChannelView(id, rs.getString("name"), rs.getString("channel_type"), rs.getString("config_json"), rs.getBoolean("enabled")));
                 advanceId(id);
             });
-            jdbc.query("SELECT id,action,resource_type,resource_id,detail,operator_name,created_at FROM operation_audit", rs -> {
-                long id = rs.getLong("id");
-                var timestamp = rs.getTimestamp("created_at");
-                auditLogs.put(id, new AuditLogView(id, rs.getString("action"), rs.getString("resource_type"),
-                        rs.getObject("resource_id", Long.class), rs.getString("detail"), rs.getString("operator_name"),
-                        timestamp == null ? LocalDateTime.now() : timestamp.toLocalDateTime()));
-                advanceId(id);
-            });
             jdbc.query("SELECT id,workflow_id,cron_expression,timezone,enabled,failure_strategy,worker_group,alert_group,ds_schedule_id,parallelism FROM schedule_config", rs -> {
                 long id = rs.getLong("id");
                 scheduleConfigs.put(id, new ScheduleConfigView(id, rs.getLong("workflow_id"), rs.getString("cron_expression"),
@@ -322,19 +316,25 @@ public class PlatformStore {
     }
     public void persistIntegrationTask(IntegrationTaskView task) {
         if (jdbc == null) return;
-        int updated = jdbc.update("UPDATE integration_task SET name=?,source_type=?,target_type=?,sync_mode=?,status=?,lifecycle_status=?,source_config_json=?,target_config_json=?,transform_config_json=?,seatunnel_config=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                task.name(), task.sourceType(), task.targetType(), task.syncMode(), task.status(), task.lifecycleStatus(), task.sourceConfigJson(), task.targetConfigJson(), task.transformConfigJson(), task.seatunnelConfig(), task.id());
-        if (updated == 0) jdbc.update("INSERT INTO integration_task (id,name,source_type,target_type,source_config_json,target_config_json,transform_config_json,sync_mode,status,lifecycle_status,seatunnel_config) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                task.id(), task.name(), task.sourceType(), task.targetType(), task.sourceConfigJson(), task.targetConfigJson(), task.transformConfigJson(), task.syncMode(), task.status(), task.lifecycleStatus(), task.seatunnelConfig());
+        int updated = jdbc.update("UPDATE integration_task SET project_id=?,name=?,source_type=?,target_type=?,sync_mode=?,status=?,lifecycle_status=?,source_config_json=?,target_config_json=?,transform_config_json=?,seatunnel_config=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                task.projectId(), task.name(), task.sourceType(), task.targetType(), task.syncMode(), task.status(), task.lifecycleStatus(), task.sourceConfigJson(), task.targetConfigJson(), task.transformConfigJson(), task.seatunnelConfig(), task.id());
+        if (updated == 0) jdbc.update("INSERT INTO integration_task (id,project_id,name,source_type,target_type,source_config_json,target_config_json,transform_config_json,sync_mode,status,lifecycle_status,seatunnel_config) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                task.id(), task.projectId(), task.name(), task.sourceType(), task.targetType(), task.sourceConfigJson(), task.targetConfigJson(), task.transformConfigJson(), task.syncMode(), task.status(), task.lifecycleStatus(), task.seatunnelConfig());
         jdbc.update("DELETE FROM integration_task_table WHERE task_id=?", task.id());
         for (IntegrationTableView table : task.tables()) {
             jdbc.update("INSERT INTO integration_task_table (id,task_id,source_database,source_table,target_database,target_table,partition_column) VALUES (?,?,?,?,?,?,?)",
                     table.id(), task.id(), table.sourceDatabase(), table.sourceTable(), table.targetDatabase(), table.targetTable(), table.partitionColumn());
         }
         integrationTaskTables.put(task.id(), task.tables());
+        jdbc.update("DELETE FROM integration_task_downstream WHERE task_id=?", task.id());
+        Set<Long> downstreams = task.downstreamFileIds() == null ? Set.of() : new LinkedHashSet<>(task.downstreamFileIds());
+        for (Long fileId : downstreams) jdbc.update("INSERT INTO integration_task_downstream(task_id,file_id) VALUES(?,?)", task.id(), fileId);
+        integrationTaskDownstreams.put(task.id(), ConcurrentHashMap.newKeySet());
+        integrationTaskDownstreams.get(task.id()).addAll(downstreams);
     }
     public void deleteIntegrationTask(long id) {
         integrationTaskTables.remove(id);
+        integrationTaskDownstreams.remove(id);
         if (jdbc == null) return;
         jdbc.update("DELETE FROM integration_instance WHERE task_id=?", id);
         jdbc.update("DELETE FROM integration_task_table WHERE task_id=?", id);

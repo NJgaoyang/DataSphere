@@ -4,11 +4,15 @@ import com.company.platform.common.BadRequestException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.config.DataSphereProperties;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,9 +23,12 @@ public class AuthService {
     private final PlatformStore store;
     private final SecureRandom random = new SecureRandom();
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
+    private final JdbcTemplate jdbc;
     private AuditService audit;
 
-    public AuthService(DataSphereProperties properties, PlatformStore store) { this.properties = properties; this.store = store; }
+    public AuthService(DataSphereProperties properties, PlatformStore store) { this(properties, store, null); }
+    @Autowired
+    public AuthService(DataSphereProperties properties, PlatformStore store, JdbcTemplate jdbc) { this.properties = properties; this.store = store; this.jdbc = jdbc; }
     @Autowired public void setAuditService(AuditService audit) { this.audit = audit; }
     public boolean enabled() { return properties.getSecurity().isEnabled(); }
 
@@ -38,7 +45,7 @@ public class AuthService {
         String token = randomToken();
         Instant expiresAt = Instant.now().plusSeconds(Math.max(5, security.getSessionTtlMinutes()) * 60L);
         String username = user.username();
-        sessions.put(token, new Session(username, expiresAt));
+        saveSession(token, username, expiresAt);
         if (audit != null) audit.record("LOGIN", "AUTH", user.id(), username, username);
         return new AuthSession(token, username, expiresAt);
     }
@@ -66,15 +73,12 @@ public class AuthService {
     public boolean authenticate(String token) {
         if (!enabled()) return true;
         if (token == null || token.isBlank()) return false;
-        Session session = sessions.get(token);
-        if (session == null) return false;
-        if (session.expiresAt().isBefore(Instant.now())) { sessions.remove(token); return false; }
-        return true;
+        return session(token) != null;
     }
     public void logout(String token) {
         String username = currentUsername(token);
         if (audit != null && token != null && !token.isBlank() && authenticate(token)) audit.record("LOGOUT", "AUTH", null, username, username);
-        if (token != null) sessions.remove(token);
+        deleteSession(token);
     }
     public boolean hasPermission(String token, String path) { return hasPermission(token, "GET", path); }
     public boolean hasPermission(String token, String method, String path) {
@@ -148,10 +152,8 @@ public class AuthService {
             return configuredAdmin == null || configuredAdmin.isBlank() ? "admin" : configuredAdmin.trim();
         }
         if (token == null || token.isBlank()) return "";
-        Session session = sessions.get(token);
-        if (session == null) return "";
-        if (session.expiresAt().isBefore(Instant.now())) { sessions.remove(token); return ""; }
-        return session.username();
+        Session session = session(token);
+        return session == null ? "" : session.username();
     }
     public String displayNameForToken(String token) {
         String username = currentUsername(token);
@@ -178,9 +180,40 @@ public class AuthService {
     }
     public void invalidateUser(String username) {
         if (username == null) return;
+        if (jdbc != null) jdbc.update("DELETE FROM auth_session WHERE LOWER(username)=LOWER(?)", username.trim());
         sessions.entrySet().removeIf(entry -> entry.getValue().username().equalsIgnoreCase(username.trim()));
     }
-    private void purgeExpiredSessions() { Instant now = Instant.now(); sessions.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now)); }
+    private void purgeExpiredSessions() {
+        Instant now = Instant.now();
+        if (jdbc != null) jdbc.update("DELETE FROM auth_session WHERE expires_at<CURRENT_TIMESTAMP");
+        sessions.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+    }
+    private void saveSession(String token, String username, Instant expiresAt) {
+        if (jdbc != null) {
+            jdbc.update("INSERT INTO auth_session(token_hash,username,expires_at,last_seen_at) VALUES(?,?,?,CURRENT_TIMESTAMP)", tokenHash(token), username, java.sql.Timestamp.from(expiresAt));
+        } else sessions.put(token, new Session(username, expiresAt));
+    }
+    private Session session(String token) {
+        if (token == null || token.isBlank()) return null;
+        if (jdbc == null) {
+            Session session = sessions.get(token);
+            if (session != null && session.expiresAt().isBefore(Instant.now())) { sessions.remove(token); return null; }
+            return session;
+        }
+        List<Session> found = jdbc.query("SELECT username,expires_at FROM auth_session WHERE token_hash=? AND expires_at>=CURRENT_TIMESTAMP", (rs,n) -> new Session(rs.getString(1),rs.getTimestamp(2).toInstant()), tokenHash(token));
+        if (found.isEmpty()) return null;
+        jdbc.update("UPDATE auth_session SET last_seen_at=CURRENT_TIMESTAMP WHERE token_hash=?", tokenHash(token));
+        return found.getFirst();
+    }
+    private void deleteSession(String token) {
+        if (token == null || token.isBlank()) return;
+        if (jdbc != null) jdbc.update("DELETE FROM auth_session WHERE token_hash=?", tokenHash(token));
+        else sessions.remove(token);
+    }
+    private String tokenHash(String token) {
+        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8))); }
+        catch (Exception ex) { throw new IllegalStateException("无法计算会话摘要", ex); }
+    }
     private String randomToken() { byte[] bytes = new byte[32]; random.nextBytes(bytes); return HexFormat.of().formatHex(bytes); }
     private record Session(String username, Instant expiresAt) { }
     public record AuthSession(String token, String username, Instant expiresAt) { }

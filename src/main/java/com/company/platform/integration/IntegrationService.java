@@ -5,6 +5,8 @@ import com.company.platform.common.NotFoundException;
 import com.company.platform.common.PlatformStore;
 import com.company.platform.datasource.PasswordCipher;
 import com.company.platform.datasource.DataSourceService;
+import com.company.platform.development.DevelopmentAccessService;
+import com.company.platform.development.DevFileView;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,6 +21,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -33,6 +36,7 @@ public class IntegrationService {
     private final IntegrationRuntimeRepository runtimeRepository;
     private final IntegrationPreCheckService preCheckService;
     private final IntegrationStagingService stagingService;
+    private DevelopmentAccessService developmentAccess;
 
     @Autowired
     public IntegrationService(PlatformStore store, SeaTunnelConfigBuilder builder, SeaTunnelGateway gateway,
@@ -51,13 +55,40 @@ public class IntegrationService {
         this.stagingService = stagingService;
     }
 
-    public List<IntegrationTaskView> list() {
-        return store.integrationTasks.values().stream().sorted(Comparator.comparingLong(IntegrationTaskView::id).reversed())
+    @Autowired(required = false)
+    public void setDevelopmentAccess(DevelopmentAccessService developmentAccess) { this.developmentAccess = developmentAccess; }
+
+    public List<IntegrationTaskView> list() { return list("admin"); }
+
+    public List<IntegrationTaskView> list(String operator) {
+        return store.integrationTasks.values().stream()
+                .filter(task -> canViewTask(task, operator))
+                .sorted(Comparator.comparingLong(IntegrationTaskView::id).reversed())
                 .map(this::masked).toList();
     }
 
+    public List<ProjectBindingOption> projectOptions(String operator) {
+        return store.projects.values().stream()
+                .filter(project -> developmentAccess == null || developmentAccess.canProjectEdit(project.id(), operator))
+                .sorted(Comparator.comparing(com.company.platform.development.DevProjectView::name, String.CASE_INSENSITIVE_ORDER))
+                .map(project -> new ProjectBindingOption(project.id(), project.name()))
+                .toList();
+    }
+
+    public List<DownstreamBindingOption> downstreamOptions(long projectId, String operator) {
+        if (developmentAccess != null) developmentAccess.requireProjectEdit(projectId, operator);
+        return store.files.values().stream().filter(file -> file.projectId() == projectId)
+                .filter(file -> Set.of("SQL","PYTHON","SHELL").contains((file.fileType()==null?"":file.fileType()).toUpperCase()))
+                .sorted(Comparator.comparing(DevFileView::name, String.CASE_INSENSITIVE_ORDER))
+                .map(file -> new DownstreamBindingOption(file.id(), file.name(), file.fileType(), file.ownerName(), file.lifecycleStatus()))
+                .toList();
+    }
+
+    public IntegrationTaskView create(IntegrationRequests.TaskRequest request) { return create(request, "admin"); }
+
     @Transactional
-    public IntegrationTaskView create(IntegrationRequests.TaskRequest request) {
+    public IntegrationTaskView create(IntegrationRequests.TaskRequest request, String operator) {
+        List<Long> downstreams = validateProjectBindings(request.projectId(), request.downstreamFileIds(), operator);
         Map<String, Object> options = effectiveOptions(request.options(), request.sourceDataSourceId(), request.targetDataSourceId());
         validateMode(request.syncMode(), options);
         List<IntegrationRequests.TableRequest> tables = resolveTables(request, null);
@@ -67,20 +98,24 @@ public class IntegrationService {
                 request.syncMode(), source, target, request.mappings(), options, tables);
         builder.build(task);
         long id = store.nextId();
-        IntegrationTaskView view = new IntegrationTaskView(id, request.name(), request.sourceType(), request.targetType(),
+        IntegrationTaskView view = new IntegrationTaskView(id, request.projectId(), request.name(), request.sourceType(), request.targetType(),
                 normalizeMode(request.syncMode()), "GENERATED", "OFFLINE", secureEndpoint(source), secureEndpoint(target),
-                secureTransform(request.mappings(), options, tables), safeConfig(task), tableViews(id, tables));
+                secureTransform(request.mappings(), options, tables), safeConfig(task), tableViews(id, tables), downstreams);
         store.persistIntegrationTask(view);
         store.integrationTasks.put(id, view);
         store.integrationTaskTables.put(id, view.tables());
         return masked(view);
     }
 
+    public IntegrationTaskView update(long id, IntegrationRequests.TaskRequest request) { return update(id, request, "admin"); }
+
     @Transactional
-    public IntegrationTaskView update(long id, IntegrationRequests.TaskRequest request) {
+    public IntegrationTaskView update(long id, IntegrationRequests.TaskRequest request, String operator) {
+        IntegrationTaskView currentView = raw(id);
+        requireTaskEdit(currentView, operator);
+        List<Long> downstreams = validateProjectBindings(request.projectId(), request.downstreamFileIds(), operator);
         Map<String, Object> options = effectiveOptions(request.options(), request.sourceDataSourceId(), request.targetDataSourceId());
         validateMode(request.syncMode(), options);
-        IntegrationTaskView currentView = raw(id);
         ensureOffline(currentView);
         IntegrationTask current = hasStructuredConfig(currentView) ? task(id) : null;
         IntegrationRequests.Endpoint source = request.sourceDataSourceId() == null
@@ -93,18 +128,20 @@ public class IntegrationService {
         IntegrationTask task = new IntegrationTask(request.name(), request.sourceType(), request.targetType(),
                 request.syncMode(), source, target, request.mappings(), options, tables);
         builder.build(task);
-        IntegrationTaskView view = new IntegrationTaskView(id, request.name(), request.sourceType(), request.targetType(),
+        IntegrationTaskView view = new IntegrationTaskView(id, request.projectId(), request.name(), request.sourceType(), request.targetType(),
                 normalizeMode(request.syncMode()), currentView.status(), currentView.lifecycleStatus(), secureEndpoint(source), secureEndpoint(target),
-                secureTransform(request.mappings(), options, tables), safeConfig(task), tableViews(id, tables));
+                secureTransform(request.mappings(), options, tables), safeConfig(task), tableViews(id, tables), downstreams);
         store.persistIntegrationTask(view);
         store.integrationTasks.put(id, view);
         store.integrationTaskTables.put(id, view.tables());
         return masked(view);
     }
 
-    public IntegrationTaskView get(long id) {
-        IntegrationTaskView view = store.integrationTasks.get(id);
-        if (view == null) throw new NotFoundException("同步任务不存在：" + id);
+    public IntegrationTaskView get(long id) { return get(id, "admin"); }
+
+    public IntegrationTaskView get(long id, String operator) {
+        IntegrationTaskView view = raw(id);
+        requireTaskView(view, operator);
         return masked(view);
     }
 
@@ -320,9 +357,9 @@ public class IntegrationService {
         String config = remaining.isEmpty() ? "" : safeConfig(new IntegrationTask(task.name(), task.sourceType(), task.targetType(), task.syncMode(), task.source(), task.target(), task.mappings(), task.options(), toRequests(remaining)));
         IntegrationRequests.Endpoint remainingSource = remaining.isEmpty() ? withTable(task.source(), "") : withTable(task.source(), remaining.get(0).sourceTable());
         IntegrationRequests.Endpoint remainingTarget = remaining.isEmpty() ? withTable(task.target(), "") : withTable(task.target(), remaining.get(0).targetTable());
-        IntegrationTaskView updated = new IntegrationTaskView(currentView.id(), currentView.name(), currentView.sourceType(), currentView.targetType(),
+        IntegrationTaskView updated = new IntegrationTaskView(currentView.id(), currentView.projectId(), currentView.name(), currentView.sourceType(), currentView.targetType(),
                 currentView.syncMode(), currentView.status(), currentView.lifecycleStatus(), secureEndpoint(remainingSource), secureEndpoint(remainingTarget),
-                secureTransform(task.mappings(), task.options(), toRequests(remaining)), config, remaining);
+                secureTransform(task.mappings(), task.options(), toRequests(remaining)), config, remaining, currentView.downstreamFileIds());
         store.persistIntegrationTask(updated);
         store.integrationTasks.put(taskId, updated);
         store.integrationTaskTables.put(taskId, remaining);
@@ -441,8 +478,9 @@ public class IntegrationService {
                 .replaceAll("(\"password\"\\s*:\\s*\")[^\"]*(\")", "$1***$2")
                 .replaceAll("(?m)(password\\s*=\\s*\")[^\"]*(\")", "$1***$2");
         List<IntegrationTableView> tables = view.tables() == null ? List.of() : view.tables();
-        return new IntegrationTaskView(view.id(), view.name(), view.sourceType(), view.targetType(), view.syncMode(), view.status(), view.lifecycleStatus(),
-                maskJson(view.sourceConfigJson()), maskJson(view.targetConfigJson()), view.transformConfigJson(), masked, tables);
+        return new IntegrationTaskView(view.id(), view.projectId(), view.name(), view.sourceType(), view.targetType(), view.syncMode(), view.status(), view.lifecycleStatus(),
+                maskJson(view.sourceConfigJson()), maskJson(view.targetConfigJson()), view.transformConfigJson(), masked, tables,
+                view.downstreamFileIds() == null ? List.of() : view.downstreamFileIds());
     }
 
     private IntegrationTask task(long id) {
@@ -482,9 +520,9 @@ public class IntegrationService {
     }
 
     private IntegrationTaskView updateLifecycle(IntegrationTaskView current, String lifecycleStatus) {
-        IntegrationTaskView updated = new IntegrationTaskView(current.id(), current.name(), current.sourceType(), current.targetType(),
+        IntegrationTaskView updated = new IntegrationTaskView(current.id(), current.projectId(), current.name(), current.sourceType(), current.targetType(),
                 current.syncMode(), current.status(), lifecycleStatus, current.sourceConfigJson(), current.targetConfigJson(),
-                current.transformConfigJson(), current.seatunnelConfig(), current.tables());
+                current.transformConfigJson(), current.seatunnelConfig(), current.tables(), current.downstreamFileIds());
         store.persistIntegrationTask(updated);
         store.integrationTasks.put(updated.id(), updated);
         return masked(updated);
@@ -496,6 +534,69 @@ public class IntegrationService {
 
     private void ensureOffline(IntegrationTaskView task) {
         if (isOnline(task)) throw new BadRequestException("任务已上线，请先下线后再编辑");
+    }
+
+
+    public void requireTaskView(long taskId, String operator) { requireTaskView(raw(taskId), operator); }
+    public void requireTaskEdit(long taskId, String operator) { requireTaskEdit(raw(taskId), operator); }
+
+    public void requireBatchView(long batchId, String operator) {
+        ensureRuntimeRepository();
+        requireTaskView(runtimeRepository.getBatch(batchId).taskId(), operator);
+    }
+
+    public void requireBatchEdit(long batchId, String operator) {
+        ensureRuntimeRepository();
+        requireTaskEdit(runtimeRepository.getBatch(batchId).taskId(), operator);
+    }
+
+    public void requireExecutionView(String executionId, String operator) {
+        IntegrationInstanceView instance = findInstance(executionId);
+        if (instance != null) { requireTaskView(instance.taskId(), operator); return; }
+        if (runtimeRepository != null) {
+            Long batchId = runtimeRepository.batchIdForExecution(executionId);
+            if (batchId != null) { requireTaskView(runtimeRepository.getBatch(batchId).taskId(), operator); return; }
+        }
+        throw new NotFoundException("同步执行实例不存在：" + executionId);
+    }
+
+    public void requireExecutionEdit(String executionId, String operator) {
+        IntegrationInstanceView instance = findInstance(executionId);
+        if (instance != null) { requireTaskEdit(instance.taskId(), operator); return; }
+        if (runtimeRepository != null) {
+            Long batchId = runtimeRepository.batchIdForExecution(executionId);
+            if (batchId != null) { requireTaskEdit(runtimeRepository.getBatch(batchId).taskId(), operator); return; }
+        }
+        throw new NotFoundException("同步执行实例不存在：" + executionId);
+    }
+
+    private boolean canViewTask(IntegrationTaskView task, String operator) {
+        return task.projectId() == null || developmentAccess == null || developmentAccess.canProjectView(task.projectId(), operator);
+    }
+
+    private void requireTaskView(IntegrationTaskView task, String operator) {
+        if (task.projectId() != null && developmentAccess != null) developmentAccess.requireProjectView(task.projectId(), operator);
+    }
+
+    private void requireTaskEdit(IntegrationTaskView task, String operator) {
+        if (task.projectId() != null && developmentAccess != null) developmentAccess.requireProjectEdit(task.projectId(), operator);
+    }
+
+    private List<Long> validateProjectBindings(Long projectId, List<Long> requested, String operator) {
+        List<Long> downstreams = requested == null ? List.of() : requested.stream().filter(Objects::nonNull).distinct().toList();
+        if (projectId == null) {
+            if (!downstreams.isEmpty()) throw new BadRequestException("绑定下游开发任务前必须选择所属项目");
+            return List.of();
+        }
+        if (!store.projects.containsKey(projectId)) throw new BadRequestException("所属项目不存在：" + projectId);
+        if (developmentAccess != null) developmentAccess.requireProjectEdit(projectId, operator);
+        for (Long fileId : downstreams) {
+            DevFileView file = store.files.get(fileId);
+            if (file == null || file.projectId() != projectId) throw new BadRequestException("下游开发任务不属于所选项目：" + fileId);
+            String type = file.fileType() == null ? "" : file.fileType().toUpperCase();
+            if (!Set.of("SQL", "PYTHON", "SHELL").contains(type)) throw new BadRequestException("不支持绑定的下游任务类型：" + file.fileType());
+        }
+        return downstreams;
     }
 
     private void validateMode(String syncMode, Map<String, Object> options) {
@@ -604,4 +705,7 @@ public class IntegrationService {
         return tables.stream().map(table -> new IntegrationRequests.TableRequest(table.sourceDatabase(), table.sourceTable(),
                 table.targetDatabase(), table.targetTable(), table.partitionColumn())).toList();
     }
+    public record ProjectBindingOption(long id, String name) { }
+    public record DownstreamBindingOption(long id, String name, String fileType, String ownerName, String lifecycleStatus) { }
+
 }

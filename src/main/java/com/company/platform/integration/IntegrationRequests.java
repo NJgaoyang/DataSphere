@@ -21,16 +21,17 @@ public final class IntegrationRequests {
                               @NotBlank String targetType, @NotBlank String syncMode,
                               @Valid @NotNull Endpoint source, @Valid @NotNull Endpoint target,
                               List<@Valid FieldMapping> mappings, Map<String, Object> options,
-                              List<@Valid TableRequest> tables, Long sourceDataSourceId, Long targetDataSourceId) {
+                              List<@Valid TableRequest> tables, Long sourceDataSourceId, Long targetDataSourceId,
+                              Long projectId, List<Long> downstreamFileIds) {
         public TaskRequest(String name, String sourceType, String targetType, String syncMode,
                            Endpoint source, Endpoint target, List<FieldMapping> mappings,
                            Map<String, Object> options, List<TableRequest> tables) {
-            this(name, sourceType, targetType, syncMode, source, target, mappings, options, tables, null, null);
+            this(name, sourceType, targetType, syncMode, source, target, mappings, options, tables, null, null, null, List.of());
         }
         public TaskRequest(String name, String sourceType, String targetType, String syncMode,
                            Endpoint source, Endpoint target, List<FieldMapping> mappings,
                            Map<String, Object> options) {
-            this(name, sourceType, targetType, syncMode, source, target, mappings, options, null, null, null);
+            this(name, sourceType, targetType, syncMode, source, target, mappings, options, null, null, null, null, List.of());
         }
     }
     public record BackfillRequest(@NotBlank String where, String startLabel, String endLabel) { }

@@ -185,29 +185,37 @@ public class LocalSchedulerGateway implements SchedulerGateway {
             Map<Long, Integer> remaining = new HashMap<>();
             Map<Long, Integer> activeIncoming = new HashMap<>();
             Map<Long, List<RuntimeEdge>> outgoing = new HashMap<>();
+            Map<Long, List<Long>> incoming = new HashMap<>();
             root.path("nodes").forEach(node -> { long id=node.path("id").asLong(); nodes.put(id,node); remaining.put(id,0); activeIncoming.put(id,0); });
             root.path("edges").forEach(edge -> {
                 long source=edge.path("sourceNodeId").asLong(), target=edge.path("targetNodeId").asLong();
                 String branch=edge.path("branchType").asText("NORMAL").toUpperCase(Locale.ROOT);
                 outgoing.computeIfAbsent(source, ignored -> new ArrayList<>()).add(new RuntimeEdge(target, branch));
+                incoming.computeIfAbsent(target, ignored -> new ArrayList<>()).add(source);
                 remaining.compute(target,(key,value)->value==null?1:value+1);
             });
             List<Long> ready = remaining.entrySet().stream().filter(entry -> entry.getValue()==0).map(Map.Entry::getKey).toList();
             Set<Long> terminal = new HashSet<>();
+            Map<Long,TaskOutcome> outcomes = new ConcurrentHashMap<>();
+            Set<Long> unhandledFailures = ConcurrentHashMap.newKeySet();
             while (!ready.isEmpty()) {
                 if (cancelled.get() || Thread.currentThread().isInterrupted()) throw new CancellationException("工作流已停止");
                 List<Future<TaskOutcome>> futures = new ArrayList<>();
-                for (Long nodeId : ready) futures.add(taskPool.submit(() -> executeNode(instanceCode, nodes.get(nodeId), cancelled)));
+                for (Long nodeId : ready) {
+                    Map<String,Object> context = conditionContext(nodeId, incoming, outcomes);
+                    futures.add(taskPool.submit(() -> executeNode(instanceCode, nodes.get(nodeId), cancelled, context)));
+                }
                 LinkedHashSet<Long> next = new LinkedHashSet<>();
                 Deque<EdgeResolution> resolutions = new ArrayDeque<>();
                 for (int i=0;i<futures.size();i++) {
                     TaskOutcome outcome = futures.get(i).get();
                     long nodeId = ready.get(i);
-                    if (!outcome.success()) throw new IllegalStateException(outcome.message());
+                    outcomes.put(nodeId, outcome);
                     terminal.add(nodeId);
+                    if (outcome.failed() && !hasConditionDownstream(nodeId, outgoing, nodes)) unhandledFailures.add(nodeId);
                     for (RuntimeEdge edge : outgoing.getOrDefault(nodeId,List.of())) {
                         boolean active = branchActive(edge.branchType(), outcome.conditionMatched());
-                        resolutions.addLast(new EdgeResolution(edge.targetNodeId(), active));
+                        resolutions.addLast(new EdgeResolution(nodeId, edge.targetNodeId(), active));
                     }
                 }
                 while (!resolutions.isEmpty()) {
@@ -216,19 +224,26 @@ public class LocalSchedulerGateway implements SchedulerGateway {
                     if (resolution.active()) activeIncoming.compute(target,(key,value)->(value==null?0:value)+1);
                     int unresolved = remaining.compute(target,(key,value)->Math.max(0,(value==null?0:value)-1));
                     if (unresolved != 0 || terminal.contains(target)) continue;
-                    if (activeIncoming.getOrDefault(target,0)>0) {
-                        next.add(target);
-                    } else {
+                    if (activeIncoming.getOrDefault(target,0)<=0) {
                         markSkipped(instanceCode, nodes.get(target), "条件分支未命中");
                         terminal.add(target);
-                        for (RuntimeEdge edge : outgoing.getOrDefault(target,List.of())) {
-                            resolutions.addLast(new EdgeResolution(edge.targetNodeId(), false));
-                        }
+                        TaskOutcome skipped=TaskOutcome.skipped("条件分支未命中"); outcomes.put(target,skipped);
+                        for (RuntimeEdge edge : outgoing.getOrDefault(target,List.of())) resolutions.addLast(new EdgeResolution(target,edge.targetNodeId(),false));
+                        continue;
                     }
+                    boolean conditionNode="CONDITION".equalsIgnoreCase(nodes.get(target).path("type").asText());
+                    boolean failedUpstream=incoming.getOrDefault(target,List.of()).stream().map(outcomes::get).filter(Objects::nonNull).anyMatch(TaskOutcome::failed);
+                    if (failedUpstream && !conditionNode) {
+                        markSkipped(instanceCode,nodes.get(target),"上游任务失败");
+                        terminal.add(target);
+                        TaskOutcome skipped=TaskOutcome.skipped("上游任务失败"); outcomes.put(target,skipped);
+                        for (RuntimeEdge edge : outgoing.getOrDefault(target,List.of())) resolutions.addLast(new EdgeResolution(target,edge.targetNodeId(),false));
+                    } else next.add(target);
                 }
                 ready = new ArrayList<>(next);
             }
             if (terminal.size()!=nodes.size()) throw new IllegalStateException("DAG 未能完成，可能存在循环或不可达节点");
+            if (!unhandledFailures.isEmpty()) throw new IllegalStateException("存在未被条件分支处理的失败任务");
             jdbc.update("UPDATE workflow_instance SET status='SUCCESS',finished_at=CURRENT_TIMESTAMP WHERE instance_code=?", instanceCode);
         } catch (CancellationException | InterruptedException ex) {
             Thread.currentThread().interrupt();
@@ -241,7 +256,25 @@ public class LocalSchedulerGateway implements SchedulerGateway {
         }
     }
 
-    private TaskOutcome executeNode(String instanceCode, JsonNode node, AtomicBoolean cancelled) {
+    private boolean hasConditionDownstream(long nodeId, Map<Long,List<RuntimeEdge>> outgoing, Map<Long,JsonNode> nodes) {
+        return outgoing.getOrDefault(nodeId,List.of()).stream().map(RuntimeEdge::targetNodeId).map(nodes::get)
+                .filter(Objects::nonNull).anyMatch(node -> "CONDITION".equalsIgnoreCase(node.path("type").asText()));
+    }
+
+    private Map<String,Object> conditionContext(long nodeId, Map<Long,List<Long>> incoming, Map<Long,TaskOutcome> outcomes) {
+        List<TaskOutcome> parents=incoming.getOrDefault(nodeId,List.of()).stream().map(outcomes::get).filter(Objects::nonNull).toList();
+        Map<String,Object> context=new LinkedHashMap<>();
+        long rowCount=0; boolean hasRowCount=false;
+        for (TaskOutcome parent:parents) for (Map.Entry<String,Object> entry:parent.outputs().entrySet()) {
+            if ("row_count".equalsIgnoreCase(entry.getKey()) && entry.getValue() instanceof Number number) { rowCount+=number.longValue(); hasRowCount=true; }
+            else context.putIfAbsent(entry.getKey(),entry.getValue());
+        }
+        if(hasRowCount) context.put("row_count",rowCount);
+        context.put("status", parents.stream().anyMatch(TaskOutcome::failed)?"FAILED":parents.stream().allMatch(TaskOutcome::skipped)?"SKIPPED":"SUCCESS");
+        return context;
+    }
+
+    private TaskOutcome executeNode(String instanceCode, JsonNode node, AtomicBoolean cancelled, Map<String,Object> context) {
         long workflowInstanceId = ((Number)instanceRow(instanceCode).get("id")).longValue();
         int retries = config(node).path("retryTimes").asInt(0);
         String nodeName=node.path("name").asText("node-"+node.path("id").asLong());
@@ -253,37 +286,45 @@ public class LocalSchedulerGateway implements SchedulerGateway {
                 log(taskId,"INFO","开始执行 " + nodeName + "，第 " + attempt + " 次尝试");
                 if (cancelled.get()) throw new CancellationException("已停止");
                 Boolean conditionMatched = null;
+                Map<String,Object> outputs=new LinkedHashMap<>();
                 switch (nodeType.toUpperCase(Locale.ROOT)) {
-                    case "SQL" -> executeSql(node,taskId);
+                    case "SQL" -> outputs.putAll(executeSql(node,taskId));
                     case "PYTHON" -> executeScript(node,taskId,cancelled,true);
                     case "SHELL" -> executeScript(node,taskId,cancelled,false);
                     case "SEATUNNEL" -> executeSeaTunnel(node,taskId,cancelled);
-                    case "CONDITION" -> conditionMatched = executeCondition(node,taskId);
+                    case "CONDITION" -> conditionMatched = executeCondition(node,taskId,context);
                     default -> throw new IllegalStateException("Local Scheduler 不支持节点类型：" + nodeType);
                 }
                 jdbc.update("UPDATE task_instance SET status='SUCCESS',finished_at=CURRENT_TIMESTAMP WHERE id=?",taskId);
                 log(taskId,"INFO","执行成功");
-                return new TaskOutcome(true,"SUCCESS",conditionMatched);
+                return TaskOutcome.success(conditionMatched,outputs);
             } catch (CancellationException ex) {
                 jdbc.update("UPDATE task_instance SET status='STOPPED',finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",ex.getMessage(),taskId);
-                return new TaskOutcome(false,"任务已停止",null);
+                return TaskOutcome.failed("任务已停止");
             } catch (Exception ex) {
                 last=ex; String message=ex.getMessage()==null?ex.getClass().getSimpleName():ex.getMessage();
                 jdbc.update("UPDATE task_instance SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",message,taskId);
                 log(taskId,"ERROR",message);
             }
         }
-        return new TaskOutcome(false,last==null?"任务失败":last.getMessage(),null);
+        return TaskOutcome.failed(last==null?"任务失败":last.getMessage());
     }
 
-    private void executeSql(JsonNode node,long taskId) {
+    private Map<String,Object> executeSql(JsonNode node,long taskId) {
         String encoded=node.path("contentBase64").asText("");
         if (encoded.isBlank()) throw new IllegalStateException("SQL 节点没有发布快照");
         String sql=new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
         JsonNode cfg=config(node); Long dataSourceId=cfg.hasNonNull("dataSourceId")?cfg.get("dataSourceId").asLong():defaultStarRocks();
         String database=cfg.path("database").asText("");
         log(taskId,"INFO","StarRocks SQL: dataSource="+dataSourceId+", database="+database);
-        queryService.execute(sql,false,dataSourceId,database,"scheduler");
+        QueryService.QueryResult result=queryService.execute(sql,false,dataSourceId,database,"scheduler");
+        Map<String,Object> outputs=new LinkedHashMap<>();
+        if(result.rows()!=null&&!result.rows().isEmpty()) for(Map.Entry<String,Object> entry:result.rows().getFirst().entrySet()) {
+            Object value=entry.getValue(); if(value instanceof Number||value instanceof String||value instanceof Boolean) outputs.put(entry.getKey().toLowerCase(Locale.ROOT),value);
+        }
+        outputs.putIfAbsent("row_count",result.rowCount());
+        log(taskId,"INFO","SQL 输出变量：row_count="+outputs.get("row_count"));
+        return outputs;
     }
 
     private void executeScript(JsonNode node,long taskId,AtomicBoolean cancelled,boolean python) throws Exception {
@@ -344,10 +385,11 @@ public class LocalSchedulerGateway implements SchedulerGateway {
         throw new CancellationException("工作流停止，SeaTunnel 已取消");
     }
 
-    private boolean executeCondition(JsonNode node,long taskId) {
+    private boolean executeCondition(JsonNode node,long taskId,Map<String,Object> context) {
         String expression=config(node).path("expression").asText("true").trim();
-        boolean matched=ConditionEvaluator.evaluate(expression,"SUCCESS");
-        log(taskId,"INFO","条件表达式 " + expression + " => " + matched);
+        String status=String.valueOf(context.getOrDefault("status","SUCCESS"));
+        boolean matched=ConditionEvaluator.evaluate(expression,status,context);
+        log(taskId,"INFO","条件表达式 " + expression + "，status=" + status + ", variables=" + context + " => " + matched);
         return matched;
     }
 
@@ -401,6 +443,12 @@ public class LocalSchedulerGateway implements SchedulerGateway {
     @PreDestroy public void shutdown(){ workflowPool.shutdownNow(); taskPool.shutdownNow(); }
     private record Definition(int version,String json){}
     private record RuntimeEdge(long targetNodeId,String branchType){}
-    private record EdgeResolution(long targetNodeId,boolean active){}
-    private record TaskOutcome(boolean success,String message,Boolean conditionMatched){}
+    private record EdgeResolution(long sourceNodeId,long targetNodeId,boolean active){}
+    private record TaskOutcome(String status,String message,Boolean conditionMatched,Map<String,Object> outputs){
+        static TaskOutcome success(Boolean matched,Map<String,Object> outputs){return new TaskOutcome("SUCCESS","SUCCESS",matched,outputs==null?Map.of():Map.copyOf(outputs));}
+        static TaskOutcome failed(String message){return new TaskOutcome("FAILED",message,null,Map.of());}
+        static TaskOutcome skipped(String message){return new TaskOutcome("SKIPPED",message,null,Map.of());}
+        boolean failed(){return "FAILED".equals(status);}
+        boolean skipped(){return "SKIPPED".equals(status);}
+    }
 }

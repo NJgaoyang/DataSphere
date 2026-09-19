@@ -34,5 +34,5 @@ public class AccessController {
     @DeleteMapping("/data-sources/{dataSourceId}/permissions/{userId}/{permissionCode}") public Result<Void> revokeDatasource(@PathVariable long dataSourceId, @PathVariable long userId, @PathVariable String permissionCode) { service.revokeDatasourcePermission(dataSourceId, userId, permissionCode); return Result.ok(null, "数据源权限已撤销"); }
     @GetMapping("/alert-channels") public Result<List<AlertChannelView>> channels() { return Result.ok(service.channels()); }
     @PostMapping("/alert-channels") public Result<AlertChannelView> createChannel(@Valid @RequestBody AccessRequests.AlertChannelRequest request) { return Result.ok(service.createChannel(request), "告警渠道已创建"); }
-    @GetMapping("/audit-logs") public Result<List<AuditLogView>> auditLogs() { return Result.ok(audit.list()); }
+    @GetMapping("/audit-logs") public Result<AuditService.Page> auditLogs(@RequestParam(required=false) String action,@RequestParam(required=false) String operator,@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="50") int pageSize) { return Result.ok(audit.page(action,operator,page,pageSize)); }
 }

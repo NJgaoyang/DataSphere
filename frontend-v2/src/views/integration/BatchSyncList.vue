@@ -5,10 +5,12 @@ import { ArrowDown, Delete, Document, Download, EditPen, Upload, VideoPlay, View
 import PageHeader from '../../components/PageHeader.vue'
 import StatusBadge from '../../components/StatusBadge.vue'
 import { dataSourceApi, type DataSourceView } from '../../api/platform'
-import { integrationApi, type IntegrationAttempt, type IntegrationBatch, type IntegrationCursor, type IntegrationInstance, type IntegrationTask, type IntegrationTaskPayload, type IntegrationTaskSummary, type IntegrationTaskSchedule } from '../../api/domain'
+import { integrationApi, type IntegrationAttempt, type IntegrationBatch, type IntegrationCursor, type IntegrationInstance, type IntegrationTask, type IntegrationTaskPayload, type IntegrationTaskSummary, type IntegrationTaskSchedule, type IntegrationProjectOption, type IntegrationDownstreamOption } from '../../api/domain'
 
 const tasks = ref<IntegrationTask[]>([])
 const sources = ref<DataSourceView[]>([])
+const projectOptions = ref<IntegrationProjectOption[]>([])
+const downstreamOptions = ref<IntegrationDownstreamOption[]>([])
 const latest = ref<Record<number, IntegrationInstance | undefined>>({})
 const latestBatch = ref<Record<number, IntegrationBatch | undefined>>({})
 const taskSummaries = ref<Record<number, IntegrationTaskSummary | undefined>>({})
@@ -59,6 +61,8 @@ const backfillForm = reactive({ where: '', startLabel: '', endLabel: '' })
 const form = reactive({
   name: '',
   description: '',
+  projectId: undefined as number|undefined,
+  downstreamFileIds: [] as number[],
   sourceDataSourceId: 0,
   targetDataSourceId: 0,
   sourceDatabase: '',
@@ -159,9 +163,10 @@ const filteredTasks = computed(() => {
 async function load() {
   loading.value = true
   try {
-    const [taskRows, sourceRows] = await Promise.all([integrationApi.list(), dataSourceApi.list()])
+    const [taskRows, sourceRows, projectRows] = await Promise.all([integrationApi.list(), dataSourceApi.list(), integrationApi.projectOptions()])
     tasks.value = taskRows.filter(task => task.syncMode !== 'REALTIME')
     sources.value = sourceRows
+    projectOptions.value = projectRows
     const states = await Promise.all(tasks.value.map(async task => {
       const [batchRows, instanceRows, summary] = await Promise.all([integrationApi.batches(task.id), integrationApi.instances(task.id), integrationApi.summary(task.id)])
       return { taskId: task.id, batch: batchRows[0], instance: instanceRows[0], summary }
@@ -180,6 +185,8 @@ function resetEditor() {
   Object.assign(form, {
     name: '',
     description: '',
+    projectId: undefined,
+    downstreamFileIds: [],
     sourceDataSourceId: mysql.value[0]?.id || 0,
     targetDataSourceId: starrocks.value[0]?.id || 0,
     sourceDatabase: '',
@@ -220,6 +227,21 @@ async function openCreate() {
   await refreshSchedulePreview()
 }
 
+async function loadProjectDownstreams(clearSelection = false) {
+  if (!form.projectId) { downstreamOptions.value = []; if (clearSelection) form.downstreamFileIds = []; return }
+  try {
+    downstreamOptions.value = await integrationApi.projectDownstreams(form.projectId)
+    const allowed = new Set(downstreamOptions.value.map(item => item.id))
+    form.downstreamFileIds = clearSelection ? [] : form.downstreamFileIds.filter(id => allowed.has(id))
+  } catch (error) {
+    downstreamOptions.value = []
+    if (clearSelection) form.downstreamFileIds = []
+    ElMessage.error(messageOf(error))
+  }
+}
+
+function onProjectChange() { void loadProjectDownstreams(true) }
+
 async function openDetail(task: IntegrationTask) {
   detailVisible.value = true
   detailLoading.value = true
@@ -259,6 +281,9 @@ async function openEdit(task: IntegrationTask) {
   resetEditor()
   editingId.value = task.id
   form.name = task.name
+  form.projectId = task.projectId
+  form.downstreamFileIds = [...(task.downstreamFileIds || [])]
+  await loadProjectDownstreams(false)
   const source = safeJson(task.sourceConfigJson)
   const target = safeJson(task.targetConfigJson)
   const transform = safeJson(task.transformConfigJson)
@@ -419,6 +444,8 @@ function buildPayload(): IntegrationTaskPayload {
   const policy = targetPolicyOptions()
   return {
     name: form.name.trim(),
+    projectId: form.projectId,
+    downstreamFileIds: [...form.downstreamFileIds],
     sourceType: 'MYSQL',
     targetType: 'STARROCKS',
     syncMode: where ? 'INCREMENTAL' : 'FULL',
@@ -1132,6 +1159,16 @@ onBeforeUnmount(() => {
               <div class="form-grid">
                 <el-form-item label="任务名称"><el-input v-model="form.name" placeholder="输入同步任务名称" /></el-form-item>
                 <el-form-item label="描述"><el-input v-model="form.description" placeholder="任务描述" /></el-form-item>
+                <el-form-item label="所属项目">
+                  <el-select v-model="form.projectId" clearable filterable placeholder="可选；用于项目工作流" style="width:100%" @change="onProjectChange">
+                    <el-option v-for="project in projectOptions" :key="project.id" :label="project.name" :value="project.id" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="同步完成后的下游任务">
+                  <el-select v-model="form.downstreamFileIds" multiple collapse-tags collapse-tags-tooltip filterable :disabled="!form.projectId" placeholder="可选；显式绑定项目下游" style="width:100%">
+                    <el-option v-for="item in downstreamOptions" :key="item.id" :label="`${item.name} · ${item.fileType}`" :value="item.id" />
+                  </el-select>
+                </el-form-item>
                 <el-form-item label="增量条件" class="span-2">
                   <el-input v-model="form.where" placeholder="为空则全量同步；增量建议使用 [start,end) 条件，例如 update_time >= :start AND update_time < :end" />
                 </el-form-item>
@@ -1258,6 +1295,8 @@ onBeforeUnmount(() => {
             <div class="section-title">确认配置</div>
             <el-descriptions :column="2" border class="confirm-overview">
               <el-descriptions-item label="任务名称">{{ form.name }}</el-descriptions-item>
+              <el-descriptions-item label="所属项目">{{ projectOptions.find(p=>p.id===form.projectId)?.name || '未关联项目' }}</el-descriptions-item>
+              <el-descriptions-item label="下游开发任务">{{ form.downstreamFileIds.length ? `${form.downstreamFileIds.length} 个` : '未绑定' }}</el-descriptions-item>
               <el-descriptions-item label="同步方式">{{ form.where.trim() ? '条件增量' : '全量同步' }}</el-descriptions-item>
               <el-descriptions-item label="来源">{{ mysql.find(item => item.id === form.sourceDataSourceId)?.name || '—' }} / {{ form.sourceDatabase }}</el-descriptions-item>
               <el-descriptions-item label="目标">{{ starrocks.find(item => item.id === form.targetDataSourceId)?.name || '—' }} / {{ form.targetDatabase }}</el-descriptions-item>

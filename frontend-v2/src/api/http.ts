@@ -6,17 +6,10 @@ interface ApiEnvelope<T> {
   message: string
 }
 
-const http = axios.create({ baseURL: '/api', timeout: 30000 })
-
-http.interceptors.request.use((config) => {
-  const token = localStorage.getItem('platform_auth_token')
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
-})
+const http = axios.create({ baseURL: '/api', timeout: 30000, withCredentials: true })
 
 http.interceptors.response.use(response => response, error => {
   if (error?.response?.status === 401 && window.location.pathname !== '/login') {
-    localStorage.removeItem('platform_auth_token')
     const target = encodeURIComponent(window.location.pathname + window.location.search)
     window.location.assign(`/login?redirect=${target}`)
   }

@@ -11,13 +11,14 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 
 @Service
 public class DevelopmentScheduleService {
@@ -27,6 +28,7 @@ public class DevelopmentScheduleService {
     private final ObjectMapper mapper;
     private final AlertSettingService alerts;
     private DevelopmentService developmentService;
+    private ThreadPoolTaskExecutor backgroundExecutor;
 
     public DevelopmentScheduleService(JdbcTemplate jdbc, Scheduler quartz, QueryService queryService, ObjectMapper mapper, AlertSettingService alerts) {
         this.jdbc=jdbc; this.quartz=quartz; this.queryService=queryService; this.mapper=mapper; this.alerts=alerts;
@@ -34,6 +36,8 @@ public class DevelopmentScheduleService {
 
     @Autowired
     public void setDevelopmentService(DevelopmentService developmentService) { this.developmentService = developmentService; }
+    @Autowired(required = false)
+    public void setBackgroundExecutor(@Qualifier("platformBackgroundExecutor") ThreadPoolTaskExecutor executor) { this.backgroundExecutor = executor; }
 
     public ScheduleView get(long fileId) {
         requireFile(fileId);
@@ -203,7 +207,7 @@ public class DevelopmentScheduleService {
     }
 
     private void monitorExecution(long fileId,long rowId,ProdConfig p,String biz,String executionId){
-        CompletableFuture.runAsync(()->{
+        Runnable monitor=()->{
             try{
                 while(true){
                     QueryService.QueryResult result=queryService.status(executionId,"operations",true);
@@ -219,7 +223,9 @@ public class DevelopmentScheduleService {
                 jdbc.update("UPDATE dev_file_schedule_execution SET status='FAILED',finished_at=CURRENT_TIMESTAMP,error_message=? WHERE id=?",ex.getMessage(),rowId);
                 alerts.notifyTask(taskName(fileId),"FAILED",ex.getMessage(),null,null,null);
             }
-        });
+        };
+        if(backgroundExecutor!=null) backgroundExecutor.execute(monitor);
+        else Thread.ofVirtual().name("dev-monitor-"+fileId).start(monitor);
     }
 
     private String renderSql(long fileId,ProdConfig p,String biz){
