@@ -1,0 +1,35 @@
+CREATE TABLE `workflow_rerun_batch` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `project_id` bigint DEFAULT NULL,
+  `source_file_id` bigint DEFAULT NULL,
+  `business_date` date NOT NULL,
+  `scope` varchar(32) NOT NULL DEFAULT 'ALL_DOWNSTREAM',
+  `include_source` tinyint(1) NOT NULL DEFAULT '0',
+  `status` varchar(32) NOT NULL DEFAULT 'PENDING',
+  `total_tasks` int NOT NULL DEFAULT '0',
+  `success_tasks` int NOT NULL DEFAULT '0',
+  `failed_tasks` int NOT NULL DEFAULT '0',
+  `waiting_tasks` int NOT NULL DEFAULT '0',
+  `created_by` varchar(128) NOT NULL DEFAULT 'admin',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `started_at` timestamp NULL DEFAULT NULL,
+  `finished_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_wf_rerun_project_created` (`project_id`,`created_at`),
+  KEY `idx_wf_rerun_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作流影响重跑批次';
+CREATE TABLE `workflow_rerun_task` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `batch_id` bigint NOT NULL,
+  `file_id` bigint DEFAULT NULL,
+  `sequence_no` int NOT NULL,
+  `status` varchar(32) NOT NULL DEFAULT 'PENDING',
+  `execution_id` varchar(128) DEFAULT NULL,
+  `started_at` timestamp NULL DEFAULT NULL,
+  `finished_at` timestamp NULL DEFAULT NULL,
+  `error_message` text,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_wf_rerun_task_batch_file` (`batch_id`,`file_id`),
+  KEY `idx_wf_rerun_task_batch_status` (`batch_id`,`status`),
+  CONSTRAINT `fk_wf_rerun_task_batch` FOREIGN KEY (`batch_id`) REFERENCES `workflow_rerun_batch` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目工作流影响重跑任务';

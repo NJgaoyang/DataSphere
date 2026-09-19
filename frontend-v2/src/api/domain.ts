@@ -115,11 +115,21 @@ export interface WorkflowNode { id:number; name:string; nodeType:'SQL'|'PYTHON'|
 export interface WorkflowEdge { id:number; sourceNodeId:number; targetNodeId:number }
 export interface WorkflowView { id:number; name:string; workflowCode:string; description?:string; status:string; publishedVersion:number; nodes:WorkflowNode[]; edges:WorkflowEdge[]; dsProcessCode?:string; updatedAt?:string }
 export interface DevelopmentWorkflowDefinition { fileId:number; name:string; workflowCode:string; status:string; lifecycleStatus:string; currentVersion:number; ownerName:string; scheduleEnabled:boolean; cycleType:string; executionTime:string; cronExpression:string; timezone:string; upstreamCount:number; downstreamCount:number; runtimeStatus?:string; plannedAt?:string; startedAt?:string; finishedAt?:string; nextPlannedAt?:string; updatedAt?:string }
+export interface ProjectWorkflowDefinition { projectId:number; name:string; description?:string; taskCount:number; enabledSchedules:number; runningTasks:number; failedTasks:number }
+export interface ProjectImpactTask { fileId:number; name:string; level:number; lifecycleStatus:string; runtimeStatus:string }
+export interface ProjectImpactView { projectId:number; sourceFileId:number; sourceName:string; includeSource:boolean; tasks:ProjectImpactTask[] }
+export interface ProjectRerunTask { id:number; fileId?:number; name:string; sequenceNo:number; status:string; executionId?:string; startedAt?:string; finishedAt?:string; errorMessage?:string }
+export interface ProjectRerunBatch { id:number; projectId:number; sourceFileId:number; businessDate:string; status:string; totalTasks:number; successTasks:number; failedTasks:number; waitingTasks:number; createdBy:string; createdAt?:string; startedAt?:string; finishedAt?:string; tasks:ProjectRerunTask[] }
 export interface WorkflowPayload { name:string; description?:string; nodes:Array<{name:string;nodeType:string;devFileId?:number;configJson?:string;x:number;y:number;nodeCode:string}>; edges:Array<{sourceNodeCode:string;targetNodeCode:string}> }
 export interface ScheduleConfig { id:number; workflowId:number; cronExpression:string; timezone:string; enabled:boolean; failureStrategy:string; parallelism:number; workerGroup?:string; alertGroup?:string }
 export const workflowApi = {
   list: () => api.get<WorkflowView[]>('/workflows'),
   developmentDefinitions: () => api.get<DevelopmentWorkflowDefinition[]>('/workflows/development-definitions'),
+  projectDefinitions: () => api.get<ProjectWorkflowDefinition[]>('/workflows/project-definitions'),
+  projectGraph: (projectId:number) => api.get<WorkflowView>(`/workflows/project-graph/${projectId}`),
+  projectImpact: (projectId:number,fileId:number,includeSource=false) => api.get<ProjectImpactView>(`/workflows/project-impact/${projectId}/${fileId}`,{params:{includeSource}}),
+  startProjectRerun: (payload:{projectId:number;sourceFileId:number;includeSource:boolean;businessDate:string}) => api.post<ProjectRerunBatch>('/workflows/project-reruns',payload),
+  projectRerun: (batchId:number) => api.get<ProjectRerunBatch>(`/workflows/project-reruns/${batchId}`),
   developmentGraph: (fileId:number) => api.get<WorkflowView>(`/workflows/development-graph/${fileId}`),
   saveDevelopmentGraph: (fileId:number,payload:WorkflowPayload) => api.put<WorkflowView>(`/workflows/development-graph/${fileId}`,payload),
   get: (id:number) => api.get<WorkflowView>(`/workflows/${id}`),

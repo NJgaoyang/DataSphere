@@ -15,11 +15,17 @@ public class WorkflowController {
     private final WorkflowService service;
     private final WorkflowPublishService publishService;
     private final SchedulerService schedulerService;
-    public WorkflowController(WorkflowService service, WorkflowPublishService publishService, SchedulerService schedulerService) {
-        this.service = service; this.publishService = publishService; this.schedulerService = schedulerService;
+    private final ProjectWorkflowService projectWorkflowService;
+    public WorkflowController(WorkflowService service, WorkflowPublishService publishService, SchedulerService schedulerService, ProjectWorkflowService projectWorkflowService) {
+        this.service = service; this.publishService = publishService; this.schedulerService = schedulerService; this.projectWorkflowService = projectWorkflowService;
     }
     @GetMapping public Result<List<WorkflowView>> list() { return Result.ok(service.list()); }
     @GetMapping("/development-definitions") public Result<List<WorkflowService.DevelopmentWorkflowDefinition>> developmentDefinitions() { return Result.ok(service.developmentDefinitions()); }
+    @GetMapping("/project-definitions") public Result<List<ProjectWorkflowService.ProjectWorkflowDefinition>> projectDefinitions() { return Result.ok(projectWorkflowService.definitions()); }
+    @GetMapping("/project-graph/{projectId}") public Result<WorkflowView> projectGraph(@PathVariable long projectId) { return Result.ok(projectWorkflowService.graph(projectId)); }
+    @GetMapping("/project-impact/{projectId}/{fileId}") public Result<ProjectWorkflowService.ImpactView> projectImpact(@PathVariable long projectId, @PathVariable long fileId, @RequestParam(defaultValue="false") boolean includeSource) { return Result.ok(projectWorkflowService.impact(projectId,fileId,includeSource)); }
+    @PostMapping("/project-reruns") public Result<ProjectWorkflowService.RerunBatchView> startProjectRerun(@RequestBody ProjectWorkflowService.RerunRequest request, HttpServletRequest servletRequest) { return Result.ok(projectWorkflowService.startRerun(request,operator(servletRequest)), "下游重跑批次已创建"); }
+    @GetMapping("/project-reruns/{batchId}") public Result<ProjectWorkflowService.RerunBatchView> projectRerun(@PathVariable long batchId) { return Result.ok(projectWorkflowService.batch(batchId)); }
     @GetMapping("/development-graph/{fileId}") public Result<WorkflowView> developmentGraph(@PathVariable long fileId) { return Result.ok(service.developmentGraph(fileId)); }
     @PutMapping("/development-graph/{fileId}") public Result<WorkflowView> updateDevelopmentGraph(@PathVariable long fileId, @Valid @RequestBody WorkflowRequests.WorkflowRequest request, HttpServletRequest servletRequest) {
         return Result.ok(service.updateDevelopmentGraph(fileId, request, operator(servletRequest)), "开发任务依赖已同步");
