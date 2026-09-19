@@ -104,7 +104,7 @@ onMounted(loadSources)
 <template>
   <div class="metadata-page" v-loading="loading">
     <header class="page-toolbar">
-      <div class="page-title"><strong>元数据</strong><span>浏览数据源中的数据库和数据表</span></div>
+      <div class="page-title"><strong>元数据</strong></div>
       <div class="toolbar-spacer" />
       <span :class="['connection-state',connectionState]"><i />{{connectionState==='ok'?'连接正常':connectionState==='bad'?'连接失败':'未检测'}}</span>
       <el-select v-model="sourceId" class="source-select" placeholder="选择数据源" @change="selectSource">
@@ -208,8 +208,8 @@ onMounted(loadSources)
 
 
 /* DataSphere light product theme — visual overrides only */
-.metadata-page{padding:24px 26px 28px;gap:14px;background:linear-gradient(180deg,#fbfdff 0%,#f7faff 100%);color:#102847}
-.page-toolbar{height:54px;flex-basis:54px}.page-title{gap:12px}.page-title strong{font-size:22px;letter-spacing:-.2px;color:#102847}.page-title span{font-size:12px;color:#7e8da3}
+.metadata-page{padding:10px 26px 28px;gap:8px;background:linear-gradient(180deg,#fbfdff 0%,#f7faff 100%);color:#102847}
+.page-toolbar{height:36px;flex-basis:36px}.page-title{gap:0}.page-title strong{font-size:17px;line-height:1.2;font-weight:680;letter-spacing:-.1px;color:#102847}
 .source-select :deep(.el-select__wrapper),.page-toolbar :deep(.el-button),.panel-search :deep(.el-input__wrapper),.table-search :deep(.el-input__wrapper){border-radius:9px}.source-select :deep(.el-select__wrapper),.panel-search :deep(.el-input__wrapper),.table-search :deep(.el-input__wrapper){box-shadow:0 0 0 1px #dfe8f3 inset;background:#fff}
 .connection-state{height:28px;padding:0 10px;border-radius:999px;border-color:#e1e8f2;background:#fff;color:#78889f}.connection-state.ok{border-color:#cdebd9;background:#f3fbf6}.connection-state.bad{border-color:#f1d2d2;background:#fff7f7}
 .governance-shell{border:1px solid #e2e9f3;border-radius:18px;box-shadow:0 12px 34px rgba(42,83,163,.05);overflow:hidden;background:#fff}
@@ -229,6 +229,6 @@ onMounted(loadSources)
 .database-list{padding:2px 9px 10px}.database-row{min-height:54px;padding:8px 9px 8px 10px;gap:10px;margin:3px 0;border:1px solid transparent;border-radius:11px;transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .16s ease}.database-row:hover{background:#fff;border-color:#e5edf7;box-shadow:0 5px 16px rgba(45,91,155,.05);transform:translateY(-1px)}.database-row.active{background:linear-gradient(90deg,#eaf3ff 0%,#f5f9ff 100%);border-color:#cfe0fb;box-shadow:0 6px 18px rgba(59,130,246,.08)}.database-row.active:before{left:-1px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:#3b82f6}
 .database-icon{width:30px;height:30px;flex:0 0 30px;border:0!important;border-radius:9px!important;background:#f0f5fb;display:grid;place-items:center}.database-icon:before{content:'';position:absolute;left:7px!important;top:8px!important;width:14px!important;height:10px!important;border:1.4px solid #70849f!important;border-radius:50%!important;background:transparent}.database-icon:after{content:'';position:absolute;left:7px!important;top:12px!important;width:14px!important;height:9px!important;border-left:1.4px solid #70849f!important;border-right:1.4px solid #70849f!important;border-bottom:1.4px solid #70849f!important;border-radius:0 0 50% 50%!important}.database-icon i{display:none}.database-row.active .database-icon{background:#dceaff}.database-row.active .database-icon:before,.database-row.active .database-icon:after{border-color:#347cf0!important}
 .database-copy{flex:1;min-width:0}.database-copy strong{font-size:12px;font-weight:650;color:#344b66}.database-copy small{margin-top:4px;font-size:10px;color:#95a1b2}.database-row.active .database-copy strong{color:#1f63cb}.database-row.active .database-copy small{color:#7189a8}.database-arrow{flex:none;color:#b2bdca;font-size:19px;line-height:1;transform:translateX(-1px);transition:transform .16s ease,color .16s ease}.database-row:hover .database-arrow{color:#7a91ad;transform:translateX(1px)}.database-row.active .database-arrow{color:#3b82f6;transform:translateX(1px)}
-@media(max-width:1280px){.metadata-page{padding:20px}.governance-shell{grid-template-columns:250px minmax(0,1fr)}.source-summary{margin:10px 9px 7px}}
+@media(max-width:1280px){.metadata-page{padding:10px 20px 20px}.governance-shell{grid-template-columns:250px minmax(0,1fr)}.source-summary{margin:10px 9px 7px}}
 
 </style>
