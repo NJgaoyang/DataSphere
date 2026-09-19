@@ -95,8 +95,8 @@ onMounted(load)
 /* login/workbench visual alignment */
 .integration-overview{position:relative;min-height:calc(100vh - 72px);background:linear-gradient(180deg,#fbfdff 0%,#f7faff 100%)}
 .integration-overview:before{content:"";position:absolute;left:-120px;bottom:-150px;width:360px;height:360px;border-radius:50%;background:radial-gradient(circle,rgba(59,130,246,.07),rgba(147,197,253,.035) 46%,transparent 68%);pointer-events:none}
-.integration-overview :deep(.ds-page-header){position:relative;z-index:1;margin-bottom:12px}
-.integration-overview :deep(.ds-page-header__title){color:#0b2142;font-size:20px;font-weight:720;letter-spacing:-.5px}
+.integration-overview :deep(.ds-page-header){position:relative;z-index:1;margin-bottom:8px}
+.integration-overview :deep(.ds-page-header__title){color:#0b2142;font-size:17px;font-weight:720;letter-spacing:-.5px}
 .integration-overview :deep(.ds-page-header__subtitle){margin-top:3px;color:#7b8ca5;font-size:12px}
 .integration-overview .metric-tile,.integration-overview .surface-card{border-color:#e7edf6!important;border-radius:18px!important;background:rgba(255,255,255,.92)!important;box-shadow:0 12px 32px rgba(32,76,145,.04)!important}
 .integration-overview .metric-tile{min-height:126px;padding:20px 22px}

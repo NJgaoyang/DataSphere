@@ -112,7 +112,7 @@ onBeforeUnmount(() => { stopLogPolling(); window.removeEventListener('keydown', 
 
 /* login/workbench visual alignment */
 .ds-integration-page{position:relative;min-height:calc(100vh - 72px);background:linear-gradient(180deg,#fbfdff 0%,#f7faff 100%)}
-.ds-integration-page :deep(.ds-page-header){margin-bottom:12px}.ds-integration-page :deep(.ds-page-header__title){color:#0b2142;font-size:20px;font-weight:720;letter-spacing:-.5px}.ds-integration-page :deep(.ds-page-header__subtitle){margin-top:3px;color:#7b8ca5;font-size:12px}
+.ds-integration-page :deep(.ds-page-header){margin-bottom:8px}.ds-integration-page :deep(.ds-page-header__title){color:#0b2142;font-size:17px;font-weight:720;letter-spacing:-.5px}.ds-integration-page :deep(.ds-page-header__subtitle){margin-top:3px;color:#7b8ca5;font-size:12px}
 .instances-card{border-color:#e7edf6!important;border-radius:18px!important;background:rgba(255,255,255,.94)!important;box-shadow:0 12px 32px rgba(32,76,145,.04)!important}
 .instances-card .ds-toolbar{min-height:62px!important;padding:11px 16px!important;background:linear-gradient(180deg,#fff 0%,#fbfdff 100%)!important;border-bottom-color:#edf2f7!important}
 .instances-card :deep(.el-segmented){padding:3px;border-radius:11px;background:#f1f5fa}.instances-card :deep(.el-segmented__item){min-height:30px;border-radius:8px}.instances-card :deep(.el-input__wrapper){min-height:36px;border-radius:10px!important;background:#fff}
