@@ -108,7 +108,7 @@ public class WorkflowService {
             int level = levels.getOrDefault(file.id(), 0);
             int row = rowByLevel.merge(level, 1, Integer::sum) - 1;
             nodes.add(new WorkflowNodeView(file.id(), stripExtension(file.name()), NodeType.SQL, file.id(), "{}",
-                    72 + level * 318, 105 + row * 150, "task_" + file.id()));
+                    70 + level * 252, 88 + row * 112, "task_" + file.id()));
         }
         return new WorkflowView(0, focus.name(), "dev_task_" + focus.id(),
                 "数据开发脚本的调度与依赖视图", "SYNCED", focus.currentVersion(), nodes, edges, null, focus.updatedAt());
